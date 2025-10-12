@@ -10,9 +10,8 @@ const Landing = () => {
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-accent py-20 px-6 text-center">
         <div className="max-w-4xl mx-auto">
-          <p className="text-xl text-primary-foreground/90 mb-8 max-w-2xl mx-auto">
-            AI-powered knowledge search across all your tools
-          </p>
+          <h1 className="text-5xl md:text-6xl font-bold text-primary-foreground mb-6">AI-powered knowledge search</h1>
+          <p className="text-xl text-primary-foreground/90 mb-8 max-w-2xl mx-auto">Across all your tools</p>
           <div className="flex gap-4 justify-center flex-wrap">
             <Button
               size="lg"
