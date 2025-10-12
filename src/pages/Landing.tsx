@@ -23,7 +23,7 @@ const Landing = () => {
               size="lg"
               variant="outline"
               onClick={() => navigate("/auth?mode=login")}
-              className="border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10"
+              className="bg-primary-foreground text-primary hover:bg-primary-foreground/90"
             >
               Sign In
             </Button>
