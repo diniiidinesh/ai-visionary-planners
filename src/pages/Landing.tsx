@@ -1,9 +1,25 @@
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
+import { useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { checkUserConnections } from "@/utils/connectionStatus";
 
 const Landing = () => {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuthAndRedirect = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const { hasConnections } = await checkUserConnections(session.user.id);
+        navigate(hasConnections ? "/search" : "/connect", { replace: true });
+      }
+    };
+    
+    checkAuthAndRedirect();
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-background">
