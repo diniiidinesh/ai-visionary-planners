@@ -97,6 +97,7 @@ serve(async (req) => {
     const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
     // Store tokens in vault via RPC (store plaintext, vault encrypts at rest)
+    // If duplicate key error (23505), the user is reconnecting - this is OK
     const { data: vaultId, error: storeError } = await supabase.rpc(
       'store_encrypted_oauth_tokens',
       {
@@ -108,9 +109,14 @@ serve(async (req) => {
       }
     );
 
-    if (storeError) {
+    if (storeError && storeError.code !== '23505') {
+      // Ignore duplicate key errors (user reconnecting)
       console.error('Failed to store tokens:', storeError);
       throw new Error('Failed to store OAuth tokens');
+    }
+    
+    if (storeError?.code === '23505') {
+      console.log('Tokens already exist, connection still valid');
     }
 
     console.log('Tokens stored in vault:', vaultId);
