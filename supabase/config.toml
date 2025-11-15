@@ -2,3 +2,6 @@ project_id = "uusegezraxxagnktnypz"
 
 [functions.google-drive-oauth-callback]
 verify_jwt = false
+
+[functions.search-google-drive]
+verify_jwt = true
