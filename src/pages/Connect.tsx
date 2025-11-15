@@ -34,12 +34,20 @@ const Connect = () => {
     fetchConnections();
 
     // Listen for OAuth callback messages
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data.type === 'oauth-success') {
-        console.log('OAuth success received:', event.data);
-        await storeOAuthToken(event.data.data);
-      } else if (event.data.type === 'oauth-error') {
-        console.error('OAuth error:', event.data.error);
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === "oauth-success") {
+        console.log("OAuth success - tokens stored server-side");
+        toast({
+          title: "Connected Successfully",
+          description: "Your account has been connected",
+        });
+        // Refresh connection status from database
+        fetchConnections();
+        // Navigate to search page
+        setTimeout(() => navigate("/search"), 1000);
+        setLoading(false);
+      } else if (event.data.type === "oauth-error") {
+        console.error("OAuth error:", event.data.error);
         toast({
           title: "Connection Failed",
           description: event.data.error,
@@ -75,43 +83,7 @@ const Connect = () => {
     }
   };
 
-  const storeOAuthToken = async (tokenData: any) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
-      const { data, error } = await supabase.functions.invoke('store-oauth-token', {
-        body: {
-          provider: 'google_drive',
-          accessToken: tokenData.accessToken,
-          refreshToken: tokenData.refreshToken,
-          iv: tokenData.iv,
-          expiresIn: tokenData.expiresIn,
-        },
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Connected Successfully",
-        description: "Google Drive has been connected to your account",
-      });
-
-      await fetchConnections();
-      
-      // Redirect to search page after successful connection
-      setTimeout(() => navigate('/search'), 1500);
-    } catch (error) {
-      console.error('Error storing token:', error);
-      toast({
-        title: "Storage Failed",
-        description: error instanceof Error ? error.message : 'Failed to store connection',
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Removed client-side token storage - now handled server-side in OAuth callback
 
   const handleConnect = async (provider: string) => {
     if (provider !== 'google drive') {
