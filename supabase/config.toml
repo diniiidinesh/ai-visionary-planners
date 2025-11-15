@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.search-google-drive]
 verify_jwt = true
+
+[functions.ai-search]
+verify_jwt = true
+
+[functions.multi-source-search]
+verify_jwt = true
+
+[functions.ai-summarize]
+verify_jwt = true

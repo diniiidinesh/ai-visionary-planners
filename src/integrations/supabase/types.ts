@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      document_index: {
+        Row: {
+          content_snippet: string | null
+          created_at: string | null
+          full_url: string | null
+          id: string
+          last_synced: string | null
+          metadata: Json | null
+          source_id: string
+          source_type: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          content_snippet?: string | null
+          created_at?: string | null
+          full_url?: string | null
+          id?: string
+          last_synced?: string | null
+          metadata?: Json | null
+          source_id: string
+          source_type: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          content_snippet?: string | null
+          created_at?: string | null
+          full_url?: string | null
+          id?: string
+          last_synced?: string | null
+          metadata?: Json | null
+          source_id?: string
+          source_type?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       oauth_connections: {
         Row: {
           created_at: string | null
@@ -73,6 +112,68 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      search_queries: {
+        Row: {
+          created_at: string | null
+          id: string
+          original_query: string
+          processed_queries: Json | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          original_query: string
+          processed_queries?: Json | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          original_query?: string
+          processed_queries?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      search_results: {
+        Row: {
+          ai_summary: string
+          created_at: string | null
+          id: string
+          model_used: string | null
+          search_query_id: string
+          sources_used: Json | null
+          user_id: string
+        }
+        Insert: {
+          ai_summary: string
+          created_at?: string | null
+          id?: string
+          model_used?: string | null
+          search_query_id: string
+          sources_used?: Json | null
+          user_id: string
+        }
+        Update: {
+          ai_summary?: string
+          created_at?: string | null
+          id?: string
+          model_used?: string | null
+          search_query_id?: string
+          sources_used?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "search_results_search_query_id_fkey"
+            columns: ["search_query_id"]
+            isOneToOne: false
+            referencedRelation: "search_queries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
