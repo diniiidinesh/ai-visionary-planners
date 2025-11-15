@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Search as SearchIcon, Filter, Calendar, FileText, Users, History } from "lucide-react";
+import { Search as SearchIcon, Filter, Calendar, FileText, Users, History, ExternalLink, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -11,14 +11,30 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+interface SearchResult {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink: string;
+  modifiedTime: string;
+  owners?: Array<{ displayName: string }>;
+  iconLink?: string;
+  size?: string;
+}
 
 const Search = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(true);
   const [dateRange, setDateRange] = useState("all");
   const [documentTypes, setDocumentTypes] = useState<string[]>(["notion", "slack", "google_drive"]);
   const [myHistoryOnly, setMyHistoryOnly] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const quickExamples = [
     "Find the PRD for mobile app redesign",
@@ -32,15 +48,66 @@ const Search = () => {
     { query: "Roadmap decisions", time: "3 days ago" },
   ];
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    const params = new URLSearchParams({
-      q: searchQuery,
-      dateRange,
-      types: documentTypes.join(","),
-      myHistory: myHistoryOnly.toString(),
-    });
-    navigate(`/search/results?${params.toString()}`);
+    
+    setIsSearching(true);
+    setHasSearched(true);
+    setSearchResults([]);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast({
+          title: "Authentication required",
+          description: "Please log in to search",
+          variant: "destructive",
+        });
+        navigate("/auth");
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('search-google-drive', {
+        body: { 
+          query: searchQuery,
+          fileTypes: documentTypes.includes("google_drive") ? ["document", "spreadsheet", "presentation", "pdf"] : []
+        },
+      });
+
+      if (error) {
+        console.error("Search error:", error);
+        toast({
+          title: "Search failed",
+          description: error.message || "Failed to search Google Drive",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setSearchResults(data?.files || []);
+      
+      if (data?.files?.length === 0) {
+        toast({
+          title: "No results found",
+          description: "Try different keywords or check your filters",
+        });
+      } else {
+        toast({
+          title: "Search complete",
+          description: `Found ${data?.files?.length || 0} results`,
+        });
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+      toast({
+        title: "Search failed",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -212,47 +279,111 @@ const Search = () => {
                 size="lg"
                 className="mt-4 w-full md:w-auto"
                 onClick={handleSearch}
-                disabled={!searchQuery.trim()}
+                disabled={!searchQuery.trim() || isSearching}
               >
-                Search
+                {isSearching ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Searching...
+                  </>
+                ) : (
+                  "Search"
+                )}
               </Button>
             </div>
 
-            {/* Quick Start Examples */}
-            <div className="mb-8">
-              <h3 className="text-sm font-semibold text-foreground mb-3">Quick Start</h3>
-              <div className="grid gap-3">
-                {quickExamples.map((example, i) => (
-                  <Card
-                    key={i}
-                    className="p-4 cursor-pointer hover:border-accent transition-colors"
-                    onClick={() => setSearchQuery(example)}
-                  >
-                    <p className="text-sm text-foreground">{example}</p>
-                  </Card>
-                ))}
-              </div>
-            </div>
-
-            {/* Recent Searches */}
-            <div>
-              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                <History className="w-4 h-4" />
-                Recent Searches
-              </h3>
-              <div className="space-y-2">
-                {recentSearches.map((search, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-3 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors"
-                    onClick={() => setSearchQuery(search.query)}
-                  >
-                    <span className="text-sm text-foreground">{search.query}</span>
-                    <span className="text-xs text-muted-foreground">{search.time}</span>
+            {/* Search Results */}
+            {hasSearched && (
+              <div className="mb-8">
+                <h3 className="text-sm font-semibold text-foreground mb-3">
+                  {isSearching ? "Searching..." : `Results (${searchResults.length})`}
+                </h3>
+                
+                {isSearching ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
                   </div>
-                ))}
+                ) : searchResults.length > 0 ? (
+                  <div className="space-y-3">
+                    {searchResults.map((result) => (
+                      <Card key={result.id} className="p-4 hover:border-accent transition-colors">
+                        <div className="flex items-start gap-3">
+                          {result.iconLink && (
+                            <img src={result.iconLink} alt="" className="w-6 h-6 mt-1" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="font-semibold text-foreground truncate">{result.name}</h4>
+                              <a
+                                href={result.webViewLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-shrink-0"
+                              >
+                                <Button variant="ghost" size="sm">
+                                  <ExternalLink className="w-4 h-4" />
+                                </Button>
+                              </a>
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                              <span>{result.mimeType.split('.').pop()?.replace('google-apps.', '')}</span>
+                              {result.owners && result.owners[0] && (
+                                <span>• {result.owners[0].displayName}</span>
+                              )}
+                              <span>• {new Date(result.modifiedTime).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="p-8 text-center">
+                    <p className="text-muted-foreground">No results found. Try different keywords or check your filters.</p>
+                  </Card>
+                )}
               </div>
-            </div>
+            )}
+
+            {/* Quick Start Examples - Show only when no search has been performed */}
+            {!hasSearched && (
+              <>
+                <div className="mb-8">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Quick Start</h3>
+                  <div className="grid gap-3">
+                    {quickExamples.map((example, i) => (
+                      <Card
+                        key={i}
+                        className="p-4 cursor-pointer hover:border-accent transition-colors"
+                        onClick={() => setSearchQuery(example)}
+                      >
+                        <p className="text-sm text-foreground">{example}</p>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Recent Searches */}
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    Recent Searches
+                  </h3>
+                  <div className="space-y-2">
+                    {recentSearches.map((search, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between p-3 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors"
+                        onClick={() => setSearchQuery(search.query)}
+                      >
+                        <span className="text-sm text-foreground">{search.query}</span>
+                        <span className="text-xs text-muted-foreground">{search.time}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </main>
         </div>
       </div>
