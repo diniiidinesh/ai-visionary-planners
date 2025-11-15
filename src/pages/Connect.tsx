@@ -54,6 +54,8 @@ const Connect = () => {
           variant: "destructive",
         });
         setLoading(false);
+        // Navigate to search page even on error
+        setTimeout(() => navigate("/search"), 1500);
       }
     };
 
