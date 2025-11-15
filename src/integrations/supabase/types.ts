@@ -16,37 +16,34 @@ export type Database = {
     Tables: {
       oauth_connections: {
         Row: {
-          access_token: string | null
           created_at: string | null
           id: string
           is_connected: boolean | null
           provider: string
-          refresh_token: string | null
           token_expiry: string | null
           updated_at: string | null
           user_id: string
+          vault_secret_id: string | null
         }
         Insert: {
-          access_token?: string | null
           created_at?: string | null
           id?: string
           is_connected?: boolean | null
           provider: string
-          refresh_token?: string | null
           token_expiry?: string | null
           updated_at?: string | null
           user_id: string
+          vault_secret_id?: string | null
         }
         Update: {
-          access_token?: string | null
           created_at?: string | null
           id?: string
           is_connected?: boolean | null
           provider?: string
-          refresh_token?: string | null
           token_expiry?: string | null
           updated_at?: string | null
           user_id?: string
+          vault_secret_id?: string | null
         }
         Relationships: []
       }
@@ -55,7 +52,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_oauth_tokens: {
+        Args: { p_provider: string; p_user_id: string }
+        Returns: Json
+      }
+      store_encrypted_oauth_tokens: {
+        Args: {
+          p_access_token: string
+          p_provider: string
+          p_refresh_token: string
+          p_token_expiry: string
+          p_user_id: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

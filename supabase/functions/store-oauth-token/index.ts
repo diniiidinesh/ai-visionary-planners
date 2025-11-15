@@ -50,29 +50,28 @@ serve(async (req) => {
 
     const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
 
-    // Store in database
-    const { data, error } = await supabaseClient
-      .from('oauth_connections')
-      .upsert({
-        user_id: user.id,
-        provider,
-        access_token: `${iv}:${accessToken}`,
-        refresh_token: refreshToken ? `${iv}:${refreshToken}` : null,
-        token_expiry: tokenExpiry.toISOString(),
-        is_connected: true,
-      })
-      .select()
-      .single();
+    // Combine IV with tokens for storage
+    const encryptedAccessToken = `${iv}:${accessToken}`;
+    const encryptedRefreshToken = refreshToken ? `${iv}:${refreshToken}` : null;
+
+    // Store tokens securely in Vault using the database function
+    const { data, error } = await supabaseClient.rpc('store_encrypted_oauth_tokens', {
+      p_user_id: user.id,
+      p_provider: provider,
+      p_access_token: encryptedAccessToken,
+      p_refresh_token: encryptedRefreshToken,
+      p_token_expiry: tokenExpiry.toISOString(),
+    });
 
     if (error) {
       console.error('Database error:', error);
       throw error;
     }
 
-    console.log('OAuth token stored successfully for user:', user.id);
+    console.log('OAuth token stored securely in vault for user:', user.id);
 
     return new Response(
-      JSON.stringify({ success: true, connection: data }),
+      JSON.stringify({ success: true, vault_secret_id: data }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
