@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { checkUserConnections } from "@/utils/connectionStatus";
 
 interface SearchResult {
   id: string;
@@ -35,6 +36,27 @@ const Search = () => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  useEffect(() => {
+    const verifyConnections = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        navigate("/auth");
+        return;
+      }
+      
+      const { hasConnections } = await checkUserConnections(user.id);
+      if (!hasConnections) {
+        toast({
+          title: "No connections found",
+          description: "Let's connect your knowledge sources first",
+        });
+        navigate("/connect");
+      }
+    };
+    
+    verifyConnections();
+  }, [navigate, toast]);
 
   const quickExamples = [
     "Find the PRD for mobile app redesign",

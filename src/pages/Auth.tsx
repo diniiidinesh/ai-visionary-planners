@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { checkUserConnections } from "@/utils/connectionStatus";
 
 const Auth = () => {
   const [searchParams] = useSearchParams();
@@ -46,10 +47,10 @@ const Auth = () => {
 
       toast({
         title: "Account created!",
-        description: "Welcome! Redirecting to search...",
+        description: "Welcome! Let's connect your knowledge sources...",
       });
 
-      navigate("/search");
+      navigate("/connect");
     } catch (error: any) {
       toast({
         title: "Sign up failed",
@@ -73,7 +74,13 @@ const Auth = () => {
 
       if (error) throw error;
 
-      navigate("/search");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { hasConnections } = await checkUserConnections(user.id);
+        navigate(hasConnections ? "/search" : "/connect");
+      } else {
+        navigate("/search");
+      }
     } catch (error: any) {
       toast({
         title: "Login failed",
