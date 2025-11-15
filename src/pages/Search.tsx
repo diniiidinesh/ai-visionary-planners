@@ -77,11 +77,30 @@ const Search = () => {
 
       if (error) {
         console.error("Search error:", error);
-        toast({
-          title: "Search failed",
-          description: error.message || "Failed to search Google Drive",
-          variant: "destructive",
-        });
+        
+        // Check if it's a connection error
+        if (error.message?.includes("not connected")) {
+          toast({
+            title: "Google Drive not connected",
+            description: "Please connect your Google Drive account first",
+            variant: "destructive",
+            action: (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => navigate("/connect")}
+              >
+                Go to Connect
+              </Button>
+            ),
+          });
+        } else {
+          toast({
+            title: "Search failed",
+            description: error.message || "Failed to search Google Drive",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
