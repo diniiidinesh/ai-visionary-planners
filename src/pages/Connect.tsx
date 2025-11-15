@@ -2,31 +2,161 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Circle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 const Connect = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [connections, setConnections] = useState<{ [key: string]: boolean }>({});
+  const [loading, setLoading] = useState(false);
 
   const integrations = [
     {
       name: "Notion",
       logo: "https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png",
-      connected: false,
+      connected: connections['notion'] || false,
     },
     {
       name: "Slack",
       logo: "https://upload.wikimedia.org/wikipedia/commons/b/b9/Slack_Technologies_Logo.svg",
-      connected: false,
+      connected: connections['slack'] || false,
     },
     {
       name: "Google Drive",
       logo: "https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg",
-      connected: false,
+      connected: connections['google_drive'] || false,
     },
   ];
 
-  const handleConnect = (provider: string) => {
-    // OAuth flow will be implemented in Week 2
-    console.log("Connecting to", provider);
+  useEffect(() => {
+    fetchConnections();
+
+    // Listen for OAuth callback messages
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data.type === 'oauth-success') {
+        console.log('OAuth success received:', event.data);
+        await storeOAuthToken(event.data.data);
+      } else if (event.data.type === 'oauth-error') {
+        console.error('OAuth error:', event.data.error);
+        toast({
+          title: "Connection Failed",
+          description: event.data.error,
+          variant: "destructive",
+        });
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const fetchConnections = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('oauth_connections')
+        .select('provider, is_connected')
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      const connectionsMap: { [key: string]: boolean } = {};
+      data?.forEach(conn => {
+        connectionsMap[conn.provider] = conn.is_connected;
+      });
+      setConnections(connectionsMap);
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+    }
+  };
+
+  const storeOAuthToken = async (tokenData: any) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const { data, error } = await supabase.functions.invoke('store-oauth-token', {
+        body: {
+          provider: 'google_drive',
+          accessToken: tokenData.accessToken,
+          refreshToken: tokenData.refreshToken,
+          iv: tokenData.iv,
+          expiresIn: tokenData.expiresIn,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Connected Successfully",
+        description: "Google Drive has been connected to your account",
+      });
+
+      await fetchConnections();
+    } catch (error) {
+      console.error('Error storing token:', error);
+      toast({
+        title: "Storage Failed",
+        description: error instanceof Error ? error.message : 'Failed to store connection',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConnect = async (provider: string) => {
+    if (provider !== 'google drive') {
+      toast({
+        title: "Coming Soon",
+        description: `${provider} integration will be available soon`,
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to connect integrations",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('google-drive-oauth-init', {
+        body: {},
+      });
+
+      if (error) throw error;
+
+      // Open OAuth URL in popup
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      window.open(
+        data.authUrl,
+        'OAuth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+    } catch (error) {
+      console.error('Error initiating OAuth:', error);
+      toast({
+        title: "Connection Failed",
+        description: error instanceof Error ? error.message : 'Failed to initiate connection',
+        variant: "destructive",
+      });
+      setLoading(false);
+    }
   };
 
   return (
@@ -72,8 +202,9 @@ const Connect = () => {
                   onClick={() => handleConnect(integration.name.toLowerCase())}
                   className="w-full"
                   variant={integration.connected ? "outline" : "default"}
+                  disabled={loading}
                 >
-                  {integration.connected ? "Reconnect" : `Connect ${integration.name}`}
+                  {loading ? "Connecting..." : integration.connected ? "Reconnect" : `Connect ${integration.name}`}
                 </Button>
               </CardContent>
             </Card>
