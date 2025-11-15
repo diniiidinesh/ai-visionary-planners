@@ -46,10 +46,10 @@ const Auth = () => {
 
       toast({
         title: "Account created!",
-        description: "Redirecting to setup...",
+        description: "Welcome! Redirecting to search...",
       });
 
-      navigate("/connect");
+      navigate("/search");
     } catch (error: any) {
       toast({
         title: "Sign up failed",
