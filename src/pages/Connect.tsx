@@ -98,6 +98,9 @@ const Connect = () => {
       });
 
       await fetchConnections();
+      
+      // Redirect to search page after successful connection
+      setTimeout(() => navigate('/search'), 1500);
     } catch (error) {
       console.error('Error storing token:', error);
       toast({
