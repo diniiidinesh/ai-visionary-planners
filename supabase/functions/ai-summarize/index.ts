@@ -50,7 +50,13 @@ serve(async (req) => {
 
     // Format documents for AI
     const formattedDocs = documents.map((doc: any, idx: number) => {
-      return `[Document ${idx + 1}: "${doc.name}"]\nURL: ${doc.webViewLink}\nType: ${doc.mimeType}\nLast Modified: ${doc.modifiedTime}\n${doc.owners ? `Owner: ${doc.owners[0]?.displayName}` : ''}\n`;
+      let docText = `[Document ${idx + 1}: "${doc.name}"]\nURL: ${doc.webViewLink}\nType: ${doc.mimeType}\nLast Modified: ${doc.modifiedTime}\n${doc.owners ? `Owner: ${doc.owners[0]?.displayName}` : ''}`;
+      
+      if (doc.content) {
+        docText += `\n\n--- Content Preview ---\n${doc.content}\n--- End Content ---`;
+      }
+      
+      return docText;
     }).join('\n\n');
 
     // Call Lovable AI for summarization
@@ -89,7 +95,8 @@ Generate a helpful summary that directly answers the user's question.`;
         messages: [
           { role: 'user', content: aiPrompt }
         ],
-        temperature: 0.3,
+        temperature: 0.4,
+        max_tokens: 2000,
       }),
     });
 

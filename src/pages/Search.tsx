@@ -132,7 +132,8 @@ const Search = () => {
           searchVariations: queryPlan.searchVariations,
           documentTypes: queryPlan.documentTypes,
           entities: queryPlan.entities,
-          originalQuery: searchQuery
+          originalQuery: searchQuery,
+          dateRange: dateRange
         }
       });
 
