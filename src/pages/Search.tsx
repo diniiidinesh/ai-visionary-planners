@@ -41,6 +41,8 @@ const Search = () => {
   const [aiSummary, setAiSummary] = useState<string>("");
   const [searchStage, setSearchStage] = useState<SearchStage>('idle');
   const [queryId, setQueryId] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [processingLogs, setProcessingLogs] = useState<string[]>([]);
 
   useEffect(() => {
     const verifyConnections = async () => {
@@ -95,6 +97,8 @@ const Search = () => {
     setSearchResults([]);
     setAiSummary("");
     setSearchStage('processing');
+    setProcessingLogs([]);
+    setShowDetails(true);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -110,6 +114,7 @@ const Search = () => {
       }
 
       console.log("Step 1: AI Query Processing...");
+      setProcessingLogs(prev => [...prev, "🔍 Analyzing your question with AI..."]);
       
       // Step 1: AI Query Processing
       const { data: queryPlan, error: queryError } = await supabase.functions.invoke('ai-search', {
@@ -122,11 +127,15 @@ const Search = () => {
       }
 
       console.log("Query processed:", queryPlan);
+      setProcessingLogs(prev => [...prev, `✓ Identified ${queryPlan.entities?.length || 0} key entities`]);
+      setProcessingLogs(prev => [...prev, `✓ Generated ${queryPlan.searchVariations?.length || 0} search variations`]);
       setQueryId(queryPlan.queryId);
       setSearchStage('searching');
 
       // Step 2: Multi-Source Search
       console.log("Step 2: Searching sources...");
+      setProcessingLogs(prev => [...prev, "📂 Searching across your Google Drive..."]);
+      
       const { data: searchData, error: searchError } = await supabase.functions.invoke('multi-source-search', {
         body: { 
           searchVariations: queryPlan.searchVariations,
@@ -159,6 +168,7 @@ const Search = () => {
 
       if (results.length === 0) {
         setSearchStage('done');
+        setProcessingLogs(prev => [...prev, "❌ No matching documents found"]);
         toast({
           title: "No results found",
           description: "Try a different search query",
@@ -167,10 +177,14 @@ const Search = () => {
         return;
       }
 
+      setProcessingLogs(prev => [...prev, `✓ Found ${results.length} relevant documents`]);
+      setProcessingLogs(prev => [...prev, "📄 Retrieving document content..."]);
       setSearchStage('summarizing');
 
       // Step 3: AI Summarization
       console.log("Step 3: Generating AI summary...");
+      setProcessingLogs(prev => [...prev, "✨ Generating AI summary with Gemini 2.5 Pro..."]);
+      
       const { data: summaryData, error: summaryError } = await supabase.functions.invoke('ai-summarize', {
         body: {
           question: searchQuery,
@@ -181,6 +195,7 @@ const Search = () => {
 
       if (summaryError) {
         console.error("Summary error:", summaryError);
+        setProcessingLogs(prev => [...prev, "⚠️ Summary generation encountered an error"]);
         // Don't fail the whole search if summary fails
         toast({
           title: "Summary generation failed",
@@ -189,10 +204,12 @@ const Search = () => {
         });
       } else {
         console.log("Summary generated");
+        setProcessingLogs(prev => [...prev, "✓ AI summary generated successfully"]);
         setAiSummary(summaryData.summary);
       }
 
       setSearchStage('done');
+      setProcessingLogs(prev => [...prev, "✅ Search complete!"]);
       toast({
         title: "Search complete",
         description: `Found ${results.length} result(s) with AI summary`,
@@ -383,28 +400,34 @@ const Search = () => {
                   </Button>
                 </div>
                 
-                {isSearching && searchStage !== 'idle' && (
-                  <div className="mt-3 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      {searchStage === 'processing' && (
-                        <>
-                          <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                          <span>Analyzing your question...</span>
-                        </>
-                      )}
-                      {searchStage === 'searching' && (
-                        <>
-                          <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                          <span>Searching across your documents...</span>
-                        </>
-                      )}
-                      {searchStage === 'summarizing' && (
-                        <>
-                          <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                          <span>Generating AI summary...</span>
-                        </>
-                      )}
-                    </div>
+                {(isSearching || processingLogs.length > 0) && (
+                  <div className="mt-4">
+                    <Collapsible open={showDetails} onOpenChange={setShowDetails}>
+                      <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                        <ChevronDown className={`h-4 w-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+                        <span className="font-medium">
+                          {isSearching ? 'Processing details...' : 'View processing details'}
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-3">
+                        <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                          {processingLogs.map((log, index) => (
+                            <div key={index} className="flex items-start gap-2 text-sm">
+                              <span className="text-muted-foreground font-mono text-xs mt-0.5">
+                                {new Date().toLocaleTimeString('en-US', { hour12: false })}
+                              </span>
+                              <span className="flex-1">{log}</span>
+                            </div>
+                          ))}
+                          {isSearching && (
+                            <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </div>
                 )}
               </div>
