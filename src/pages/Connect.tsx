@@ -35,18 +35,19 @@ const Connect = () => {
 
     // Listen for OAuth callback messages
     const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === "oauth-success") {
+      if (event.origin && event.origin !== window.location.origin) {
+        return;
+      }
+      if (event.data?.type === "oauth-success") {
         console.log("OAuth success - tokens stored server-side");
         toast({
           title: "Connected Successfully",
           description: "Your account has been connected",
         });
-        // Refresh connection status from database
         fetchConnections();
-        // Navigate to search page
         setTimeout(() => navigate("/search"), 1000);
         setLoading(false);
-      } else if (event.data.type === "oauth-error") {
+      } else if (event.data?.type === "oauth-error") {
         console.error("OAuth error:", event.data.error);
         toast({
           title: "Connection Failed",
@@ -54,7 +55,6 @@ const Connect = () => {
           variant: "destructive",
         });
         setLoading(false);
-        // Navigate to search page even on error
         setTimeout(() => navigate("/search"), 1500);
       }
     };
@@ -109,7 +109,10 @@ const Connect = () => {
       }
 
       const { data, error } = await supabase.functions.invoke('google-drive-oauth-init', {
-        body: {},
+        body: {
+          returnUrl: `${window.location.origin}/search`,
+          postMessageOrigin: window.location.origin,
+        },
       });
 
       if (error) throw error;
@@ -120,11 +123,14 @@ const Connect = () => {
       const left = window.screen.width / 2 - width / 2;
       const top = window.screen.height / 2 - height / 2;
       
-      window.open(
+      const popup = window.open(
         data.authUrl,
         'OAuth',
         `width=${width},height=${height},left=${left},top=${top}`
       );
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        window.location.href = data.authUrl;
+      }
     } catch (error) {
       console.error('Error initiating OAuth:', error);
       toast({

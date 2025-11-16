@@ -129,11 +129,26 @@ serve(async (req) => {
 
     console.log('OAuth flow completed successfully');
 
-    // Return simple success message (no token data in postMessage)
+    // Return success page with robust redirect fallback
     return new Response(
       `<html><body><script>
-        window.opener.postMessage({ type: 'oauth-success' }, '*'); 
-        window.close();
+        (function() {
+          var origin = ${JSON.stringify('${stateRecord.post_message_origin ?? "*"}').slice(1,-1)};
+          var returnUrl = ${JSON.stringify('${stateRecord.return_url ?? ""}').slice(1,-1)};
+          try {
+            if (window.opener) {
+              window.opener.postMessage({ type: 'oauth-success' }, origin || '*');
+              window.close();
+            }
+          } catch (e) {}
+          setTimeout(function() {
+            if (returnUrl) {
+              window.location.replace(returnUrl + '?oauth=success');
+            } else {
+              document.body.innerText = 'Connection successful. You can close this window.';
+            }
+          }, 300);
+        })();
       </script></body></html>`,
       { status: 200, headers: { 'Content-Type': 'text/html' } }
     );
@@ -142,11 +157,25 @@ serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return new Response(
       `<html><body><script>
-        window.opener.postMessage({ 
-          type: 'oauth-error', 
-          error: '${errorMessage}' 
-        }, '*'); 
-        window.close();
+        (function() {
+          var origin = ${JSON.stringify('${stateRecord?.post_message_origin ?? "*"}').slice(1,-1)};
+          var returnUrl = ${JSON.stringify('${stateRecord?.return_url ?? ""}').slice(1,-1)};
+          try {
+            if (window.opener) {
+              window.opener.postMessage({ type: 'oauth-error', error: '${errorMessage}' }, origin || '*');
+              window.close();
+            }
+          } catch (e) {}
+          setTimeout(function() {
+            if (returnUrl) {
+              var reason = encodeURIComponent('${errorMessage}');
+              var url = returnUrl + '?oauth=error&reason=' + reason;
+              window.location.replace(url);
+            } else {
+              document.body.innerText = 'Connection failed: ${errorMessage}';
+            }
+          }, 300);
+        })();
       </script></body></html>`,
       { status: 200, headers: { 'Content-Type': 'text/html' } }
     );

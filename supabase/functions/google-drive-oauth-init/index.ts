@@ -42,6 +42,17 @@ serve(async (req) => {
 
     console.log('User authenticated:', user.id);
 
+    // Parse optional returnUrl and postMessageOrigin from request body
+    let returnUrl = '';
+    let postMessageOrigin = '';
+    try {
+      const body = await req.json();
+      returnUrl = typeof body?.returnUrl === 'string' ? body.returnUrl : '';
+      postMessageOrigin = typeof body?.postMessageOrigin === 'string' ? body.postMessageOrigin : '';
+    } catch (_) {
+      // No JSON body provided; continue with defaults
+    }
+
     // Generate cryptographically secure state
     const state = crypto.randomUUID();
 
@@ -54,6 +65,8 @@ serve(async (req) => {
         user_id: user.id,
         provider: 'google_drive',
         expires_at: expiresAt,
+        return_url: returnUrl || null,
+        post_message_origin: postMessageOrigin || null,
       });
 
     if (insertError) {
