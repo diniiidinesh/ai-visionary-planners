@@ -90,7 +90,9 @@ export type Database = {
         Row: {
           created_at: string
           expires_at: string
+          post_message_origin: string | null
           provider: string
+          return_url: string | null
           state: string
           used: boolean
           user_id: string
@@ -98,7 +100,9 @@ export type Database = {
         Insert: {
           created_at?: string
           expires_at: string
+          post_message_origin?: string | null
           provider: string
+          return_url?: string | null
           state: string
           used?: boolean
           user_id: string
@@ -106,7 +110,9 @@ export type Database = {
         Update: {
           created_at?: string
           expires_at?: string
+          post_message_origin?: string | null
           provider?: string
+          return_url?: string | null
           state?: string
           used?: boolean
           user_id?: string
