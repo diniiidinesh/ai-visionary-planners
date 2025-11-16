@@ -50,8 +50,10 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Multi-source search for user ${user.id}`);
-    console.log('Search variations:', searchVariations);
+    console.log(`🔍 Multi-source search for user ${user.id}`);
+    console.log('📝 Search variations:', searchVariations);
+    console.log('📅 Date range:', dateRange || 'all');
+    console.log('📄 Document types:', documentTypes);
 
     // Get OAuth tokens for Google Drive
     const { data: tokens, error: tokenError } = await supabase.rpc(
@@ -60,7 +62,7 @@ serve(async (req) => {
     );
 
     if (tokenError || !tokens) {
-      console.error('Failed to get OAuth tokens:', tokenError);
+      console.error('❌ Failed to get OAuth tokens:', tokenError);
       return new Response(
         JSON.stringify({ 
           error: 'No Google Drive connection found. Please connect your account first.',
@@ -71,11 +73,13 @@ serve(async (req) => {
     }
 
     const accessToken = tokens.access_token;
+    console.log('✅ OAuth tokens retrieved successfully');
 
-    // Build search query for Google Drive
-    const queries = searchVariations || [originalQuery];
-    const searchQuery = queries.join(' OR ');
+    // Prepare search queries - limit to top 3 variations
+    const queries = (searchVariations || [originalQuery]).slice(0, 3);
+    console.log(`🎯 Using ${queries.length} search variations:`, queries);
     
+    // Build mime type filter
     let mimeTypeQuery = '';
     if (documentTypes && documentTypes.length > 0) {
       const mimeTypes = documentTypes.map((type: string) => {
@@ -93,13 +97,14 @@ serve(async (req) => {
       }
     }
 
-    // Add date range filter
+    // Build date range filter
     let dateQuery = '';
-    if (dateRange && dateRange !== 'all') {
+    const effectiveDateRange = dateRange || 'all';
+    if (effectiveDateRange !== 'all') {
       const now = new Date();
       let startDate: Date;
       
-      switch(dateRange) {
+      switch(effectiveDateRange) {
         case 'week':
           startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
           break;
@@ -117,32 +122,57 @@ serve(async (req) => {
       }
       
       dateQuery = ` and modifiedTime > '${startDate.toISOString()}'`;
+      console.log(`📅 Date filter: documents modified after ${startDate.toISOString()}`);
     }
 
-    const fullQuery = `fullText contains '${searchQuery.replace(/'/g, "\\'")}'${mimeTypeQuery}${dateQuery}`;
-    console.log('Google Drive query:', fullQuery);
+    // Make separate queries for each search variation to avoid Google Drive API limitations
+    console.log('🔎 Executing separate queries for each variation...');
+    const allFiles: any[] = [];
+    let queryCount = 0;
 
-    // Search Google Drive
-    const driveResponse = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fullQuery)}&fields=files(id,name,mimeType,webViewLink,modifiedTime,owners)&pageSize=20`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-        },
+    for (const query of queries) {
+      try {
+        queryCount++;
+        const escapedQuery = query.replace(/'/g, "\\'");
+        const fullQuery = `fullText contains '${escapedQuery}'${mimeTypeQuery}${dateQuery}`;
+        
+        console.log(`Query ${queryCount}/${queries.length}:`, fullQuery);
+
+        const driveResponse = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fullQuery)}&fields=files(id,name,mimeType,webViewLink,modifiedTime,owners)&pageSize=50`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (!driveResponse.ok) {
+          const errorText = await driveResponse.text();
+          console.error(`❌ Query ${queryCount} failed:`, errorText);
+          continue; // Skip failed queries, continue with others
+        }
+
+        const driveData = await driveResponse.json();
+        const files = driveData.files || [];
+        console.log(`✅ Query ${queryCount} returned ${files.length} files`);
+        allFiles.push(...files);
+      } catch (error) {
+        console.error(`❌ Error in query ${queryCount}:`, error);
+        // Continue with other queries
       }
-    );
-
-    if (!driveResponse.ok) {
-      const errorText = await driveResponse.text();
-      console.error('Google Drive API error:', driveResponse.status, errorText);
-      throw new Error(`Google Drive search failed: ${driveResponse.status}`);
     }
 
-    const driveData = await driveResponse.json();
-    const files = driveData.files || [];
-
-    console.log(`Found ${files.length} files from Google Drive`);
+    // Deduplicate files by ID
+    const uniqueFilesMap = new Map();
+    for (const file of allFiles) {
+      if (!uniqueFilesMap.has(file.id)) {
+        uniqueFilesMap.set(file.id, file);
+      }
+    }
+    const files = Array.from(uniqueFilesMap.values());
+    
+    console.log(`📊 Total files after deduplication: ${files.length}`);
 
     // Calculate relevance scores
     const results: SearchResult[] = files.map((file: any) => {
