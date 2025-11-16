@@ -12,6 +12,9 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let fallbackReturnUrl = "";
+  let fallbackOrigin = "*";
+
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get('code');
@@ -59,6 +62,10 @@ serve(async (req) => {
     }
 
     console.log('State validated for user:', stateRecord.user_id);
+
+    // Capture potential redirect targets for error fallback
+    fallbackReturnUrl = stateRecord.return_url ?? "";
+    fallbackOrigin = stateRecord.post_message_origin ?? "*";
 
     const clientId = Deno.env.get('GOOGLE_DRIVE_CLIENT_ID');
     const clientSecret = Deno.env.get('GOOGLE_DRIVE_CLIENT_SECRET');
@@ -130,54 +137,34 @@ serve(async (req) => {
     console.log('OAuth flow completed successfully');
 
     // Return success page with robust redirect fallback
-    return new Response(
-      `<html><body><script>
-        (function() {
-          var origin = ${JSON.stringify(stateRecord.post_message_origin ?? "*")};
-          var returnUrl = ${JSON.stringify(stateRecord.return_url ?? "")};
-          try {
-            if (window.opener) {
-              window.opener.postMessage({ type: 'oauth-success' }, origin || '*');
-              window.close();
-            }
-          } catch (e) {}
-          setTimeout(function() {
-            if (returnUrl) {
-              window.location.replace(returnUrl + '?oauth=success');
-            } else {
-              document.body.innerText = 'Connection successful. You can close this window.';
-            }
-          }, 300);
-        })();
-      </script></body></html>`,
-      { status: 200, headers: { 'Content-Type': 'text/html' } }
-    );
+    // Redirect to return_url if provided (more reliable than inline JS)
+    if (stateRecord.return_url) {
+      const redirectTo = `${stateRecord.return_url}?oauth=success`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
+      });
+    }
+
+    // Fallback minimal response if we don't have a return URL
+    return new Response('Connection successful. You can close this window.', {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+    });
   } catch (error) {
     console.error('Error in google-drive-oauth-callback:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return new Response(
-      `<html><body><script>
-        (function() {
-          var origin = "*";
-          var returnUrl = "";
-          try {
-            if (window.opener) {
-              window.opener.postMessage({ type: 'oauth-error', error: '${errorMessage}' }, origin);
-              window.close();
-            }
-          } catch (e) {}
-          setTimeout(function() {
-            if (returnUrl) {
-              var reason = encodeURIComponent('${errorMessage}');
-              var url = returnUrl + '?oauth=error&reason=' + reason;
-              window.location.replace(url);
-            } else {
-              document.body.innerText = 'Connection failed: ${errorMessage}';
-            }
-          }, 300);
-        })();
-      </script></body></html>`,
-      { status: 200, headers: { 'Content-Type': 'text/html' } }
-    );
+    if (fallbackReturnUrl) {
+      const redirectTo = `${fallbackReturnUrl}?oauth=error&reason=${encodeURIComponent(errorMessage)}`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
+      });
+    }
+
+    return new Response(`Connection failed: ${errorMessage}` , {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+    });
   }
 });
