@@ -133,8 +133,8 @@ serve(async (req) => {
     return new Response(
       `<html><body><script>
         (function() {
-          var origin = ${JSON.stringify('${stateRecord.post_message_origin ?? "*"}').slice(1,-1)};
-          var returnUrl = ${JSON.stringify('${stateRecord.return_url ?? ""}').slice(1,-1)};
+          var origin = ${JSON.stringify(stateRecord.post_message_origin ?? "*")};
+          var returnUrl = ${JSON.stringify(stateRecord.return_url ?? "")};
           try {
             if (window.opener) {
               window.opener.postMessage({ type: 'oauth-success' }, origin || '*');
@@ -158,11 +158,11 @@ serve(async (req) => {
     return new Response(
       `<html><body><script>
         (function() {
-          var origin = ${JSON.stringify('${stateRecord?.post_message_origin ?? "*"}').slice(1,-1)};
-          var returnUrl = ${JSON.stringify('${stateRecord?.return_url ?? ""}').slice(1,-1)};
+          var origin = "*";
+          var returnUrl = "";
           try {
             if (window.opener) {
-              window.opener.postMessage({ type: 'oauth-error', error: '${errorMessage}' }, origin || '*');
+              window.opener.postMessage({ type: 'oauth-error', error: '${errorMessage}' }, origin);
               window.close();
             }
           } catch (e) {}
