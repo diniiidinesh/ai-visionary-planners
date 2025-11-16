@@ -55,14 +55,17 @@ serve(async (req) => {
     console.log('📅 Date range:', dateRange || 'all');
     console.log('📄 Document types:', documentTypes);
 
-    // Get OAuth tokens for Google Drive
-    const { data: tokens, error: tokenError } = await supabase.rpc(
-      'get_oauth_tokens',
-      { p_user_id: user.id, p_provider: 'google_drive' }
-    );
+    // Get OAuth connection info including token expiry
+    const { data: connectionData, error: connectionError } = await supabase
+      .from('oauth_connections')
+      .select('vault_secret_id, token_expiry')
+      .eq('user_id', user.id)
+      .eq('provider', 'google_drive')
+      .eq('is_connected', true)
+      .single();
 
-    if (tokenError || !tokens) {
-      console.error('❌ Failed to get OAuth tokens:', tokenError);
+    if (connectionError || !connectionData) {
+      console.error('❌ No Google Drive connection found:', connectionError);
       return new Response(
         JSON.stringify({ 
           error: 'No Google Drive connection found. Please connect your account first.',
@@ -72,8 +75,105 @@ serve(async (req) => {
       );
     }
 
-    const accessToken = tokens.access_token;
-    console.log('✅ OAuth tokens retrieved successfully');
+    // Get OAuth tokens from vault
+    const { data: tokens, error: tokenError } = await supabase.rpc(
+      'get_oauth_tokens',
+      { p_user_id: user.id, p_provider: 'google_drive' }
+    );
+
+    if (tokenError || !tokens) {
+      console.error('❌ Failed to get OAuth tokens:', tokenError);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to retrieve access tokens. Please reconnect your Google Drive account.',
+          needsConnection: true 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    let accessToken = tokens.access_token;
+    const refreshToken = tokens.refresh_token;
+    
+    // Check if token is expired and refresh if needed
+    const tokenExpiry = new Date(connectionData.token_expiry);
+    const now = new Date();
+    
+    console.log(`⏰ Token expiry: ${tokenExpiry.toISOString()}`);
+    console.log(`⏰ Current time: ${now.toISOString()}`);
+    console.log(`⏰ Token expired: ${tokenExpiry <= now}`);
+    
+    if (tokenExpiry <= now) {
+      console.log('🔄 Access token expired, refreshing...');
+      
+      try {
+        // Refresh the token using Google OAuth endpoint
+        const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: Deno.env.get('GOOGLE_DRIVE_CLIENT_ID') ?? '',
+            client_secret: Deno.env.get('GOOGLE_DRIVE_CLIENT_SECRET') ?? '',
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token'
+          })
+        });
+
+        if (!refreshResponse.ok) {
+          const errorText = await refreshResponse.text();
+          console.error('❌ Token refresh failed:', refreshResponse.status, errorText);
+          return new Response(
+            JSON.stringify({ 
+              error: 'Failed to refresh access token. Please reconnect your Google Drive account.',
+              needsConnection: true 
+            }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const newTokens = await refreshResponse.json();
+        console.log('✅ Token refreshed successfully');
+        
+        // Calculate new expiry (Google tokens typically expire in 1 hour)
+        const expiresInSeconds = newTokens.expires_in || 3600;
+        const newExpiry = new Date(Date.now() + (expiresInSeconds * 1000));
+        
+        console.log(`⏰ New token expiry: ${newExpiry.toISOString()}`);
+        
+        // Update vault with new access token
+        const { data: vaultUpdateResult, error: vaultError } = await supabase.rpc(
+          'store_encrypted_oauth_tokens',
+          {
+            p_user_id: user.id,
+            p_provider: 'google_drive',
+            p_access_token: newTokens.access_token,
+            p_refresh_token: refreshToken, // Keep existing refresh token
+            p_token_expiry: newExpiry.toISOString()
+          }
+        );
+
+        if (vaultError) {
+          console.error('❌ Failed to update vault with new token:', vaultError);
+          // Continue with the new token even if vault update fails
+        } else {
+          console.log('✅ Vault updated with new token');
+        }
+
+        // Use the new access token
+        accessToken = newTokens.access_token;
+      } catch (refreshError) {
+        console.error('❌ Token refresh error:', refreshError);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to refresh access token. Please reconnect your Google Drive account.',
+            needsConnection: true 
+          }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    } else {
+      console.log('✅ Access token is still valid');
+    }
 
     // Prepare search queries - limit to top 3 variations
     const queries = (searchVariations || [originalQuery]).slice(0, 3);
