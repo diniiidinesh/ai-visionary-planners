@@ -65,24 +65,45 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    const aiPrompt = `You are a knowledgeable assistant helping answer questions based on document search results.
+    const aiPrompt = `You are an expert assistant providing precise answers based on document search results.
 
-**Question**: ${question}
+**User Question**: ${question}
 
-**Available Documents**:
+**Available Source Documents**:
 ${formattedDocs}
 
-**Instructions**:
-1. Answer the question based ONLY on the documents provided above
-2. Cite sources inline using markdown format: [Source: Document Name](URL)
-3. Use direct quotes when available and relevant
-4. If documents contain contradictory information, mention it
-5. If the answer cannot be found in the documents, clearly state: "I couldn't find information about this in the available documents."
-6. Structure your answer with clear paragraphs
-7. Be concise but comprehensive
-8. Use markdown formatting (bold, lists, etc.) for better readability
+**Critical Instructions**:
+1. **Answer Accuracy**: Base your response EXCLUSIVELY on the documents provided above. Never use external knowledge.
 
-Generate a helpful summary that directly answers the user's question.`;
+2. **Source Citation**: 
+   - Cite ALL sources inline using: [Document Name](URL)
+   - Reference specific documents when making claims
+   - Example: "According to [Q4 Report](url), revenue increased by 15%"
+
+3. **Content Quality**:
+   - Provide specific facts, figures, and quotes when available
+   - Use **bold** for key findings and important terms
+   - Structure with clear paragraphs and bullet points for lists
+   - Include relevant dates, numbers, and specific details
+
+4. **Handling Uncertainty**:
+   - If information is contradictory across documents, present both views with sources
+   - If confidence is low, state: "Based on limited information in [Doc Name]..."
+   - If answer is not found, clearly state: "❌ The available documents do not contain information about this."
+
+5. **Response Format**:
+   - Start with a direct answer to the question
+   - Follow with supporting details and evidence
+   - End with relevant document links if helpful
+   - Keep responses concise but thorough (aim for 150-300 words unless more detail is needed)
+
+6. **Confidence Indicator**: 
+   - End your response with one of:
+     - ✅ **High Confidence**: Answer fully supported by multiple documents
+     - ⚠️ **Medium Confidence**: Answer based on limited or single source
+     - ❌ **Low Confidence**: Insufficient information in documents
+
+Generate a well-structured, evidence-based response.`;
 
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',

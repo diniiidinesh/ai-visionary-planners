@@ -239,7 +239,7 @@ serve(async (req) => {
         console.log(`Query ${queryCount}/${queries.length}:`, fullQuery);
 
         const driveResponse = await fetch(
-          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fullQuery)}&fields=files(id,name,mimeType,webViewLink,modifiedTime,owners)&pageSize=50`,
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fullQuery)}&fields=files(id,name,mimeType,webViewLink,modifiedTime,owners)&pageSize=100`,
           {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -274,16 +274,28 @@ serve(async (req) => {
     
     console.log(`📊 Total files after deduplication: ${files.length}`);
 
-    // Calculate relevance scores
+    // Calculate relevance scores with enhanced algorithm
     const results: SearchResult[] = files.map((file: any) => {
       let relevanceScore = 0;
       const fileName = file.name.toLowerCase();
+      const fileOwner = file.owners?.[0]?.emailAddress?.toLowerCase() || '';
+      
+      // Exact phrase matching (highest priority)
+      const originalQueryLower = originalQuery.toLowerCase();
+      if (fileName.includes(originalQueryLower)) {
+        relevanceScore += 25; // High boost for exact query match
+      }
       
       // Score based on entity matches
       if (entities) {
         entities.forEach((entity: string) => {
-          if (fileName.includes(entity.toLowerCase())) {
-            relevanceScore += 10;
+          const entityLower = entity.toLowerCase();
+          if (fileName.includes(entityLower)) {
+            relevanceScore += 15; // Increased from 10
+          }
+          // Check if entity appears in owner email (e.g., person name)
+          if (fileOwner.includes(entityLower)) {
+            relevanceScore += 8;
           }
         });
       }
@@ -298,11 +310,26 @@ serve(async (req) => {
         });
       });
       
+      // Document type preference scoring
+      const preferredTypes = [
+        'application/vnd.google-apps.document',
+        'application/vnd.google-apps.spreadsheet',
+        'application/pdf'
+      ];
+      if (preferredTypes.includes(file.mimeType)) {
+        relevanceScore += 8;
+      }
+      
+      // Owner relevance - boost documents owned by current user
+      if (fileOwner === user.email?.toLowerCase()) {
+        relevanceScore += 10;
+      }
+      
       // Boost recent documents
       const modifiedDate = new Date(file.modifiedTime);
       const daysSinceModified = (Date.now() - modifiedDate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSinceModified < 30) relevanceScore += 5;
-      if (daysSinceModified < 7) relevanceScore += 5;
+      if (daysSinceModified < 7) relevanceScore += 10;
+      else if (daysSinceModified < 30) relevanceScore += 5;
 
       return {
         id: file.id,
@@ -319,8 +346,9 @@ serve(async (req) => {
     // Sort by relevance score
     results.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-    // Fetch content for top 12 results
+    // Fetch content for top 10-12 results (optimized selection)
     const topResults = results.slice(0, 12);
+    console.log(`📊 Relevance scores for top 12: ${topResults.map(r => `${r.name}: ${r.relevanceScore}`).join(', ')}`);
     console.log(`Fetching content for top ${topResults.length} documents...`);
     
     for (const result of topResults) {
@@ -365,7 +393,7 @@ serve(async (req) => {
     }
 
     // Cache documents in document_index
-    for (const result of results.slice(0, 15)) { // Cache top 15
+    for (const result of results.slice(0, 12)) { // Cache top 12
       try {
         await supabase
           .from('document_index')
@@ -390,11 +418,11 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Returning ${results.length} ranked results`);
+    console.log(`Returning top 12 best-ranked results out of ${results.length} total`);
 
     return new Response(
       JSON.stringify({ 
-        results: results.slice(0, 15),
+        results: results.slice(0, 12), // Return top 10-12 for AI processing
         totalFound: results.length 
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
