@@ -17,6 +17,7 @@ interface SearchResult {
   relevanceScore: number;
   source: string;
   snippet?: string;
+  content?: string;
 }
 
 serve(async (req) => {
@@ -25,7 +26,7 @@ serve(async (req) => {
   }
 
   try {
-    const { searchVariations, documentTypes, entities, originalQuery } = await req.json();
+    const { searchVariations, documentTypes, entities, originalQuery, dateRange } = await req.json();
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -92,7 +93,33 @@ serve(async (req) => {
       }
     }
 
-    const fullQuery = `fullText contains '${searchQuery.replace(/'/g, "\\'")}'${mimeTypeQuery}`;
+    // Add date range filter
+    let dateQuery = '';
+    if (dateRange && dateRange !== 'all') {
+      const now = new Date();
+      let startDate: Date;
+      
+      switch(dateRange) {
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case 'quarter':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          break;
+        case 'year':
+          startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+        default:
+          startDate = now;
+      }
+      
+      dateQuery = ` and modifiedTime > '${startDate.toISOString()}'`;
+    }
+
+    const fullQuery = `fullText contains '${searchQuery.replace(/'/g, "\\'")}'${mimeTypeQuery}${dateQuery}`;
     console.log('Google Drive query:', fullQuery);
 
     // Search Google Drive
@@ -161,6 +188,51 @@ serve(async (req) => {
 
     // Sort by relevance score
     results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    // Fetch content for top 12 results
+    const topResults = results.slice(0, 12);
+    console.log(`Fetching content for top ${topResults.length} documents...`);
+    
+    for (const result of topResults) {
+      try {
+        let contentUrl = '';
+        
+        // Determine export format based on MIME type
+        if (result.mimeType === 'application/vnd.google-apps.document') {
+          contentUrl = `https://www.googleapis.com/drive/v3/files/${result.id}/export?mimeType=text/plain`;
+        } else if (result.mimeType === 'application/vnd.google-apps.spreadsheet') {
+          contentUrl = `https://www.googleapis.com/drive/v3/files/${result.id}/export?mimeType=text/csv`;
+        } else if (result.mimeType === 'application/vnd.google-apps.presentation') {
+          contentUrl = `https://www.googleapis.com/drive/v3/files/${result.id}/export?mimeType=text/plain`;
+        } else if (result.mimeType === 'application/pdf') {
+          contentUrl = `https://www.googleapis.com/drive/v3/files/${result.id}?alt=media`;
+        } else {
+          // For other types, try to get as plain text
+          contentUrl = `https://www.googleapis.com/drive/v3/files/${result.id}?alt=media`;
+        }
+        
+        if (contentUrl) {
+          const contentResponse = await fetch(contentUrl, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+          
+          if (contentResponse.ok) {
+            let content = await contentResponse.text();
+            // Limit content to first 5000 characters
+            if (content.length > 5000) {
+              content = content.substring(0, 5000) + '... (truncated)';
+            }
+            result.content = content;
+            console.log(`Fetched content for ${result.name} (${content.length} chars)`);
+          }
+        }
+      } catch (contentError) {
+        console.error(`Failed to fetch content for ${result.name}:`, contentError);
+        // Continue without content for this document
+      }
+    }
 
     // Cache documents in document_index
     for (const result of results.slice(0, 15)) { // Cache top 15
