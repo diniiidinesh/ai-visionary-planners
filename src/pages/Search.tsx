@@ -43,6 +43,12 @@ const Search = () => {
   const [queryId, setQueryId] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [processingLogs, setProcessingLogs] = useState<string[]>([]);
+  const [queryDetails, setQueryDetails] = useState<{
+    entities?: string[];
+    searchVariations?: string[];
+    documentTypes?: string[];
+    intent?: string;
+  }>({});
 
   useEffect(() => {
     const verifyConnections = async () => {
@@ -127,6 +133,15 @@ const Search = () => {
       }
 
       console.log("Query processed:", queryPlan);
+      
+      // Store query details for display
+      setQueryDetails({
+        entities: queryPlan.entities,
+        searchVariations: queryPlan.searchVariations,
+        documentTypes: queryPlan.documentTypes,
+        intent: queryPlan.intent
+      });
+      
       setProcessingLogs(prev => [...prev, `✓ Identified ${queryPlan.entities?.length || 0} key entities`]);
       setProcessingLogs(prev => [...prev, `✓ Generated ${queryPlan.searchVariations?.length || 0} search variations`]);
       setQueryId(queryPlan.queryId);
@@ -410,21 +425,76 @@ const Search = () => {
                         </span>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-3">
-                        <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-                          {processingLogs.map((log, index) => (
-                            <div key={index} className="flex items-start gap-2 text-sm">
-                              <span className="text-muted-foreground font-mono text-xs mt-0.5">
-                                {new Date().toLocaleTimeString('en-US', { hour12: false })}
-                              </span>
-                              <span className="flex-1">{log}</span>
-                            </div>
-                          ))}
-                          {isSearching && (
-                            <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              <span>Processing...</span>
+                        <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+                          {/* Query Details */}
+                          {(queryDetails.entities || queryDetails.searchVariations || queryDetails.documentTypes || queryDetails.intent) && (
+                            <div className="space-y-3 pb-4 border-b border-border/50">
+                              {queryDetails.intent && (
+                                <div>
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Intent</span>
+                                  <p className="text-sm text-foreground mt-1.5">{queryDetails.intent}</p>
+                                </div>
+                              )}
+                              
+                              {queryDetails.entities && queryDetails.entities.length > 0 && (
+                                <div>
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Key Entities</span>
+                                  <div className="flex flex-wrap gap-2 mt-1.5">
+                                    {queryDetails.entities.map((entity, idx) => (
+                                      <span key={idx} className="px-2.5 py-1 bg-primary/10 text-primary text-xs rounded-md font-medium">
+                                        {entity}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {queryDetails.searchVariations && queryDetails.searchVariations.length > 0 && (
+                                <div>
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Search Variations</span>
+                                  <ul className="mt-1.5 space-y-1.5">
+                                    {queryDetails.searchVariations.map((variation, idx) => (
+                                      <li key={idx} className="text-sm text-foreground flex items-start gap-2">
+                                        <span className="text-muted-foreground shrink-0 font-mono text-xs">{idx + 1}.</span>
+                                        <span className="flex-1">{variation}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              
+                              {queryDetails.documentTypes && queryDetails.documentTypes.length > 0 && (
+                                <div>
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Document Types</span>
+                                  <div className="flex flex-wrap gap-2 mt-1.5">
+                                    {queryDetails.documentTypes.map((type, idx) => (
+                                      <span key={idx} className="px-2.5 py-1 bg-secondary text-secondary-foreground text-xs rounded-md font-medium">
+                                        {type}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
+                          
+                          {/* Processing Logs */}
+                          <div className="space-y-2">
+                            {processingLogs.map((log, index) => (
+                              <div key={index} className="flex items-start gap-2 text-sm">
+                                <span className="text-muted-foreground font-mono text-xs mt-0.5">
+                                  {new Date().toLocaleTimeString('en-US', { hour12: false })}
+                                </span>
+                                <span className="flex-1">{log}</span>
+                              </div>
+                            ))}
+                            {isSearching && (
+                              <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>Processing...</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </CollapsibleContent>
                     </Collapsible>
