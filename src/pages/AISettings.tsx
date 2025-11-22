@@ -37,7 +37,7 @@ const PROVIDER_MODELS: Record<string, string[]> = {
     'openai/gpt-5',
   ],
   openai: ['gpt-5-mini', 'gpt-5', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'],
-  google: ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+  google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 };
 
 export default function AISettings() {
