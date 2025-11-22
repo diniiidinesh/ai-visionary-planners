@@ -1,6 +1,7 @@
 import { AIProvider } from './base-provider.ts';
 import { OpenAIProvider } from './openai-provider.ts';
 import { LovableProvider } from './lovable-provider.ts';
+import { GoogleProvider } from './google-provider.ts';
 import { AIProviderConfig } from './types.ts';
 
 export class AIProviderFactory {
@@ -10,13 +11,15 @@ export class AIProviderFactory {
         return new OpenAIProvider(config);
       case 'lovable':
         return new LovableProvider(config);
+      case 'google':
+        return new GoogleProvider(config);
       default:
         throw new Error(`Unsupported AI provider: ${config.provider}`);
     }
   }
   
   static getSupportedProviders(): string[] {
-    return ['openai', 'lovable'];
+    return ['openai', 'lovable', 'google'];
   }
   
   static getDefaultModels(provider: string): string[] {
@@ -28,6 +31,11 @@ export class AIProviderFactory {
         'google/gemini-2.5-flash-lite',
         'openai/gpt-5-mini',
         'openai/gpt-5'
+      ],
+      google: [
+        'gemini-2.0-flash-exp',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro'
       ]
     };
     return models[provider] || [];
