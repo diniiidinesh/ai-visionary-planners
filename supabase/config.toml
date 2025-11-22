@@ -14,3 +14,9 @@ verify_jwt = true
 
 [functions.ai-summarize]
 verify_jwt = true
+
+[functions.save-api-key]
+verify_jwt = true
+
+[functions.update-ai-preferences]
+verify_jwt = true

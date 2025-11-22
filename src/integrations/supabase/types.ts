@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage_logs: {
+        Row: {
+          completion_tokens: number | null
+          created_at: string | null
+          estimated_cost_usd: number | null
+          id: string
+          model: string
+          prompt_tokens: number | null
+          provider: string
+          purpose: string
+          response_time_ms: number | null
+          total_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          model: string
+          prompt_tokens?: number | null
+          provider: string
+          purpose: string
+          response_time_ms?: number | null
+          total_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          model?: string
+          prompt_tokens?: number | null
+          provider?: string
+          purpose?: string
+          response_time_ms?: number | null
+          total_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       document_index: {
         Row: {
           content_snippet: string | null
@@ -181,12 +223,88 @@ export type Database = {
           },
         ]
       }
+      user_ai_preferences: {
+        Row: {
+          created_at: string | null
+          enable_cost_tracking: boolean | null
+          id: string
+          monthly_budget_usd: number | null
+          search_model: string | null
+          search_org_id: string | null
+          search_provider: string | null
+          summarize_model: string | null
+          summarize_org_id: string | null
+          summarize_provider: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enable_cost_tracking?: boolean | null
+          id?: string
+          monthly_budget_usd?: number | null
+          search_model?: string | null
+          search_org_id?: string | null
+          search_provider?: string | null
+          summarize_model?: string | null
+          summarize_org_id?: string | null
+          summarize_provider?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enable_cost_tracking?: boolean | null
+          id?: string
+          monthly_budget_usd?: number | null
+          search_model?: string | null
+          search_org_id?: string | null
+          search_provider?: string | null
+          summarize_model?: string | null
+          summarize_org_id?: string | null
+          summarize_provider?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_api_keys: {
+        Row: {
+          created_at: string | null
+          id: string
+          provider: string
+          updated_at: string | null
+          user_id: string
+          vault_secret_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          provider: string
+          updated_at?: string | null
+          user_id: string
+          vault_secret_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          provider?: string
+          updated_at?: string | null
+          user_id?: string
+          vault_secret_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       get_oauth_tokens: {
+        Args: { p_provider: string; p_user_id: string }
+        Returns: Json
+      }
+      get_user_api_key: {
         Args: { p_provider: string; p_user_id: string }
         Returns: Json
       }
@@ -198,6 +316,10 @@ export type Database = {
           p_token_expiry: string
           p_user_id: string
         }
+        Returns: string
+      }
+      store_user_api_key: {
+        Args: { p_api_key: string; p_provider: string; p_user_id: string }
         Returns: string
       }
     }
