@@ -120,7 +120,20 @@ const Search = () => {
       }
 
       console.log("Step 1: AI Query Processing...");
-      setProcessingLogs(prev => [...prev, "🔍 Analyzing your question with AI..."]);
+      
+      // Fetch user's AI preferences for search model
+      const { data: searchPrefs } = await supabase
+        .from('user_ai_preferences')
+        .select('search_provider, search_model')
+        .eq('user_id', user.id)
+        .single();
+      
+      const searchProviderLabel = searchPrefs?.search_provider === 'openai' ? 'OpenAI' : 
+                                   searchPrefs?.search_provider === 'google' ? 'Google Gemini' : 
+                                   'Lovable AI';
+      const searchModelName = searchPrefs?.search_model || 'default model';
+      
+      setProcessingLogs(prev => [...prev, `🔍 Analyzing your question with ${searchProviderLabel} (${searchModelName})...`]);
       
       // Step 1: AI Query Processing
       const { data: queryPlan, error: queryError } = await supabase.functions.invoke('ai-search', {
@@ -534,8 +547,13 @@ const Search = () => {
                   className="prose prose-sm max-w-none dark:prose-invert"
                   dangerouslySetInnerHTML={{ 
                     __html: aiSummary
-                      .replace(/\[Source: ([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">[$1]</a>')
+                      // First handle markdown-style links [text](url)
+                      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+                      // Then handle plain URLs (http:// or https://)
+                      .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+                      // Handle bold text
                       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                      // Handle line breaks
                       .replace(/\n\n/g, '</p><p class="mt-4">')
                       .replace(/^(.+)$/, '<p>$1</p>')
                   }}
