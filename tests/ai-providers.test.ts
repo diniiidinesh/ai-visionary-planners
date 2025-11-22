@@ -105,10 +105,23 @@ Deno.test("Provider Factory - Create Lovable", () => {
   assertEquals(provider.getProviderName(), 'lovable');
 });
 
+Deno.test("Provider Factory - Create Google", () => {
+  const config: AIProviderConfig = {
+    provider: 'google',
+    apiKey: 'test-key',
+    model: 'gemini-2.0-flash-exp'
+  };
+
+  const provider = AIProviderFactory.create(config);
+  assertExists(provider);
+  assertEquals(provider.getProviderName(), 'google');
+});
+
 Deno.test("Provider Factory - Get Supported Providers", () => {
   const providers = AIProviderFactory.getSupportedProviders();
   assertEquals(providers.includes('openai'), true);
   assertEquals(providers.includes('lovable'), true);
+  assertEquals(providers.includes('google'), true);
 });
 
 Deno.test("Provider Factory - Get Default Models", () => {
@@ -119,4 +132,8 @@ Deno.test("Provider Factory - Get Default Models", () => {
   const lovableModels = AIProviderFactory.getDefaultModels('lovable');
   assertEquals(lovableModels.length > 0, true);
   assertEquals(lovableModels.includes('google/gemini-2.5-flash'), true);
+
+  const googleModels = AIProviderFactory.getDefaultModels('google');
+  assertEquals(googleModels.length > 0, true);
+  assertEquals(googleModels.includes('gemini-2.0-flash-exp'), true);
 });

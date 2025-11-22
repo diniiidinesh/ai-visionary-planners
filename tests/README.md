@@ -9,10 +9,17 @@ This test suite validates the AI provider abstraction layer, edge functions, and
 Tests for the AI provider abstraction layer:
 - OpenAI Provider initialization and methods
 - Lovable Provider initialization and methods
+- Google Provider initialization and methods
 - Provider Factory functionality
 - JSON response parsing
 - Cost estimation algorithms
 - Message building logic
+
+### 2. `google-provider.test.ts`
+Focused tests for Google Gemini provider:
+- Basic chat functionality
+- Cost estimation
+- Model configuration validation
 
 ### 2. `edge-functions.test.ts`
 Tests for Supabase Edge Functions:
@@ -23,6 +30,13 @@ Tests for Supabase Edge Functions:
 - End-to-end integration flow
 - Database schema validation
 
+### 3. Frontend Tests
+Tests for AI Settings UI:
+- Loading user preferences
+- Saving API keys (OpenAI, Google)
+- Updating provider selections
+- Cost tracking configuration
+
 ## Running Tests
 
 ### Prerequisites
@@ -32,6 +46,7 @@ curl -fsSL https://deno.land/x/install/install.sh | sh
 
 # Set environment variables
 export OPENAI_API_KEY=your-openai-key
+export GOOGLE_API_KEY=your-google-key
 export LOVABLE_API_KEY=your-lovable-key
 export SUPABASE_URL=your-supabase-url
 export SUPABASE_ANON_KEY=your-anon-key
@@ -116,11 +131,13 @@ curl -X POST "https://your-project.supabase.co/functions/v1/ai-summarize" \
 ### Unit Tests
 - [ ] OpenAI Provider creates successfully
 - [ ] Lovable Provider creates successfully
+- [ ] Google Provider creates successfully
 - [ ] JSON parsing handles markdown code blocks
 - [ ] JSON parsing handles plain JSON
 - [ ] Cost estimation calculates correctly
 - [ ] Provider factory creates correct providers
 - [ ] Provider factory returns supported providers list
+- [ ] Provider factory includes Google in supported list
 
 ### Edge Function Tests
 - [ ] ai-search processes queries correctly
