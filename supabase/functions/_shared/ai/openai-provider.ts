@@ -1,14 +1,93 @@
 import { AIProvider } from './base-provider.ts';
 import { AIRequest, AIResponse, AIStreamChunk } from './types.ts';
 
+// Model capability configuration for scalability
+interface ModelCapabilities {
+  supportsTemperature: boolean;
+  usesMaxCompletionTokens: boolean;
+}
+
 export class OpenAIProvider extends AIProvider {
+  // Define model capabilities - easy to extend for new models
+  private static MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
+    // Newer models (GPT-5 family, GPT-4.1+, O-series)
+    'gpt-5': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'gpt-5-mini': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'gpt-5-nano': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'gpt-4.1': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'gpt-4.1-mini': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'o3': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    'o4-mini': { supportsTemperature: false, usesMaxCompletionTokens: true },
+    
+    // Legacy models
+    'gpt-4o': { supportsTemperature: true, usesMaxCompletionTokens: false },
+    'gpt-4o-mini': { supportsTemperature: true, usesMaxCompletionTokens: false },
+    'gpt-4-turbo': { supportsTemperature: true, usesMaxCompletionTokens: false },
+  };
+
   getProviderName(): string {
     return 'openai';
   }
-  
-  async chat(request: AIRequest): Promise<AIResponse> {
+
+  // Helper to get model capabilities with sensible defaults
+  private getModelCapabilities(): ModelCapabilities {
+    const modelName = this.config.model;
+    
+    // Check for exact match first
+    if (OpenAIProvider.MODEL_CAPABILITIES[modelName]) {
+      return OpenAIProvider.MODEL_CAPABILITIES[modelName];
+    }
+    
+    // Check for partial matches (e.g., "gpt-5-2025-08-07" matches "gpt-5")
+    for (const [key, capabilities] of Object.entries(OpenAIProvider.MODEL_CAPABILITIES)) {
+      if (modelName.startsWith(key)) {
+        return capabilities;
+      }
+    }
+    
+    // Default to newer model behavior for unknown models
+    console.warn(`Unknown OpenAI model: ${modelName}, using newer model defaults`);
+    return { supportsTemperature: false, usesMaxCompletionTokens: true };
+  }
+
+  // Helper to build request body with model-specific parameters
+  private buildRequestBody(request: AIRequest, streaming: boolean = false): Record<string, any> {
+    const capabilities = this.getModelCapabilities();
     const messages = this.buildMessages(request);
     
+    const body: Record<string, any> = {
+      model: this.config.model,
+      messages,
+    };
+
+    // Add temperature only if the model supports it
+    if (capabilities.supportsTemperature) {
+      body.temperature = request.temperature ?? 0.7;
+    }
+
+    // Add token limit with correct parameter name
+    if (request.maxTokens) {
+      if (capabilities.usesMaxCompletionTokens) {
+        body.max_completion_tokens = request.maxTokens;
+      } else {
+        body.max_tokens = request.maxTokens;
+      }
+    }
+
+    // Add response format if specified
+    if (request.responseFormat === 'json') {
+      body.response_format = { type: 'json_object' };
+    }
+
+    // Add streaming flag if needed
+    if (streaming) {
+      body.stream = true;
+    }
+
+    return body;
+  }
+  
+  async chat(request: AIRequest): Promise<AIResponse> {
     const response = await fetch(
       this.config.baseUrl || 'https://api.openai.com/v1/chat/completions',
       {
@@ -20,15 +99,7 @@ export class OpenAIProvider extends AIProvider {
             'OpenAI-Organization': this.config.organizationId
           })
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages,
-          temperature: request.temperature ?? 0.7,
-          max_completion_tokens: request.maxTokens,
-          ...(request.responseFormat === 'json' && {
-            response_format: { type: 'json_object' }
-          })
-        })
+        body: JSON.stringify(this.buildRequestBody(request, false))
       }
     );
     
@@ -61,22 +132,18 @@ export class OpenAIProvider extends AIProvider {
   }
   
   async *streamChat(request: AIRequest): AsyncGenerator<AIStreamChunk> {
-    const messages = this.buildMessages(request);
-    
     const response = await fetch(
       this.config.baseUrl || 'https://api.openai.com/v1/chat/completions',
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.config.apiKey}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(this.config.organizationId && {
+            'OpenAI-Organization': this.config.organizationId
+          })
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages,
-          temperature: request.temperature ?? 0.7,
-          stream: true
-        })
+        body: JSON.stringify(this.buildRequestBody(request, true))
       }
     );
     
