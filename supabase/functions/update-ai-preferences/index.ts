@@ -61,6 +61,8 @@ serve(async (req) => {
         enable_cost_tracking: enableCostTracking,
         monthly_budget_usd: monthlyBudgetUsd,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id'
       });
 
     if (upsertError) {
