@@ -198,7 +198,20 @@ const Search = () => {
 
       // Step 3: AI Summarization
       console.log("Step 3: Generating AI summary...");
-      setProcessingLogs(prev => [...prev, "✨ Generating AI summary with Gemini 2.5 Pro..."]);
+      
+      // Fetch user's AI preferences to show the correct provider
+      const { data: userPrefs } = await supabase
+        .from('user_ai_preferences')
+        .select('summarize_provider, summarize_model')
+        .eq('user_id', user.id)
+        .single();
+      
+      const providerLabel = userPrefs?.summarize_provider === 'openai' ? 'OpenAI' : 
+                           userPrefs?.summarize_provider === 'google' ? 'Google Gemini' : 
+                           'Lovable AI';
+      const modelName = userPrefs?.summarize_model || 'default model';
+      
+      setProcessingLogs(prev => [...prev, `✨ Generating AI summary with ${providerLabel} (${modelName})...`]);
       
       const { data: summaryData, error: summaryError } = await supabase.functions.invoke('ai-summarize', {
         body: {

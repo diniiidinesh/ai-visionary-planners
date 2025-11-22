@@ -52,11 +52,6 @@ export default function AISettings() {
     enableCostTracking: false,
   });
 
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({
-    openai: '',
-    google: '',
-  });
-
   useEffect(() => {
     loadPreferences();
   }, []);
@@ -123,30 +118,6 @@ export default function AISettings() {
       toast.error('Failed to save AI preferences');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const saveApiKey = async (provider: string) => {
-    if (!apiKeys[provider]) {
-      toast.error('Please enter an API key');
-      return;
-    }
-
-    try {
-      const { error } = await supabase.functions.invoke('save-api-key', {
-        body: {
-          provider,
-          apiKey: apiKeys[provider],
-        },
-      });
-
-      if (error) throw error;
-
-      toast.success(`${provider.toUpperCase()} API key saved successfully`);
-      setApiKeys({ ...apiKeys, [provider]: '' });
-    } catch (error: any) {
-      console.error('Error saving API key:', error);
-      toast.error(`Failed to save ${provider.toUpperCase()} API key`);
     }
   };
 
@@ -318,49 +289,6 @@ export default function AISettings() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>API Keys</CardTitle>
-              <CardDescription>
-                Configure API keys for external AI providers (Lovable AI doesn't require a key)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="openai-key">OpenAI API Key</Label>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      id="openai-key"
-                      type="password"
-                      value={apiKeys.openai}
-                      onChange={(e) =>
-                        setApiKeys({ ...apiKeys, openai: e.target.value })
-                      }
-                      placeholder="sk-..."
-                    />
-                    <Button onClick={() => saveApiKey('openai')}>Save</Button>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="google-key">Google Gemini API Key</Label>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      id="google-key"
-                      type="password"
-                      value={apiKeys.google}
-                      onChange={(e) =>
-                        setApiKeys({ ...apiKeys, google: e.target.value })
-                      }
-                      placeholder="AIza..."
-                    />
-                    <Button onClick={() => saveApiKey('google')}>Save</Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader>
