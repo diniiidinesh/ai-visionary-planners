@@ -1,6 +1,8 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
+import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
+import { AIConfigManager } from '../_shared/ai/config-manager.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -46,12 +48,16 @@ serve(async (req) => {
 
     console.log(`Processing query for user ${user.id}: "${query}"`);
 
-    // Call Lovable AI to process the query
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY not configured');
-    }
+    // Get AI provider configuration
+    const configManager = new AIConfigManager(supabase, user.id);
+    const providerConfig = await configManager.getProviderConfig('search');
+    
+    // Create AI provider
+    const aiProvider = AIProviderFactory.create(providerConfig);
+    
+    console.log(`Using ${providerConfig.provider}/${providerConfig.model} for query processing`);
 
+    // Build AI prompt
     const aiPrompt = `You are a search query optimizer. Analyze this question and break it down into searchable components.
 
 Question: "${query}"
@@ -77,53 +83,24 @@ Example output:
 
 Return ONLY valid JSON, no other text.`;
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'user', content: aiPrompt }
-        ],
-        temperature: 0.3,
-      }),
+    // Make AI request
+    const startTime = Date.now();
+    const aiResponse = await aiProvider.chat({
+      messages: [{ role: 'user', content: aiPrompt }],
+      temperature: 0.3,
+      responseFormat: 'json'
     });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('Lovable AI error:', aiResponse.status, errorText);
-      
-      if (aiResponse.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'AI service rate limit exceeded. Please try again in a moment.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      throw new Error(`AI service error: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const aiContent = aiData.choices?.[0]?.message?.content;
     
-    if (!aiContent) {
-      throw new Error('No response from AI service');
-    }
+    const responseTime = Date.now() - startTime;
 
-    console.log('AI raw response:', aiContent);
+    console.log('AI raw response:', aiResponse.content);
 
     // Parse the AI response (handle markdown code blocks if present)
     let processedQueries;
     try {
-      const jsonMatch = aiContent.match(/```json\s*([\s\S]*?)\s*```/) || 
-                       aiContent.match(/```\s*([\s\S]*?)\s*```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : aiContent;
-      processedQueries = JSON.parse(jsonStr.trim());
+      processedQueries = aiProvider.parseJSONResponse(aiResponse.content);
     } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError, aiContent);
+      console.error('Failed to parse AI response:', parseError, aiResponse.content);
       // Fallback to basic query processing
       processedQueries = {
         entities: [query],
@@ -149,6 +126,7 @@ Return ONLY valid JSON, no other text.`;
     }
 
     console.log('Query processed successfully:', processedQueries);
+    console.log(`Response time: ${responseTime}ms, Provider: ${aiResponse.provider}/${aiResponse.model}`);
 
     return new Response(
       JSON.stringify({
