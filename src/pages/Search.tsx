@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import DOMPurify from "dompurify";
 import { checkUserConnections } from "@/utils/connectionStatus";
 
 interface SearchResult {
@@ -546,16 +547,18 @@ const Search = () => {
                 <div 
                   className="prose prose-sm max-w-none dark:prose-invert"
                   dangerouslySetInnerHTML={{ 
-                    __html: aiSummary
-                      // First handle markdown-style links [text](url)
-                      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
-                      // Then handle plain URLs (http:// or https://)
-                      .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
-                      // Handle bold text
-                      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                      // Handle line breaks
-                      .replace(/\n\n/g, '</p><p class="mt-4">')
-                      .replace(/^(.+)$/, '<p>$1</p>')
+                    __html: DOMPurify.sanitize(
+                      aiSummary
+                        // First handle markdown-style links [text](url)
+                        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+                        // Then handle plain URLs (http:// or https://)
+                        .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+                        // Handle bold text
+                        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                        // Handle line breaks
+                        .replace(/\n\n/g, '</p><p class="mt-4">')
+                        .replace(/^(.+)$/, '<p>$1</p>')
+                    )
                   }}
                 />
               </Card>
