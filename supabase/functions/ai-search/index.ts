@@ -3,7 +3,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
-import { AISearchSchema } from '../_shared/validation/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,22 +15,14 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
+    const { query } = await req.json();
     
-    // Validate input
-    const validationResult = AISearchSchema.safeParse(body);
-    if (!validationResult.success) {
-      console.error('Validation error:', validationResult.error.format());
+    if (!query || query.trim().length === 0) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input', 
-          details: validationResult.error.errors.map(e => e.message).join(', ')
-        }),
+        JSON.stringify({ error: 'Query is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    const { query } = validationResult.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {

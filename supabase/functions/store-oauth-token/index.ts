@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { StoreOAuthTokenSchema } from '../_shared/validation/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -40,22 +39,14 @@ serve(async (req) => {
       );
     }
 
-    const body = await req.json();
-    
-    // Validate input
-    const validationResult = StoreOAuthTokenSchema.safeParse(body);
-    if (!validationResult.success) {
-      console.error('Validation error:', validationResult.error.format());
+    const { provider, accessToken, refreshToken, iv, expiresIn } = await req.json();
+
+    if (!provider || !accessToken) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input', 
-          details: validationResult.error.errors.map(e => e.message).join(', ')
-        }),
+        JSON.stringify({ error: 'Missing required fields' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    const { provider, accessToken, refreshToken, iv, expiresIn } = validationResult.data;
 
     const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
 
