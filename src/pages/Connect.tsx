@@ -33,28 +33,34 @@ const Connect = () => {
   useEffect(() => {
     fetchConnections();
 
-    // Check for OAuth callback parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const oauthStatus = urlParams.get('oauth');
-    const oauthMessage = urlParams.get('message');
+    // Listen for OAuth callback messages
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin && event.origin !== window.location.origin) {
+        return;
+      }
+      if (event.data?.type === "oauth-success") {
+        console.log("OAuth success - tokens stored server-side");
+        toast({
+          title: "Connected Successfully",
+          description: "Your account has been connected",
+        });
+        fetchConnections();
+        setTimeout(() => navigate("/search"), 1000);
+        setLoading(false);
+      } else if (event.data?.type === "oauth-error") {
+        console.error("OAuth error:", event.data.error);
+        toast({
+          title: "Connection Failed",
+          description: event.data.error,
+          variant: "destructive",
+        });
+        setLoading(false);
+        setTimeout(() => navigate("/search"), 1500);
+      }
+    };
 
-    if (oauthStatus === 'success') {
-      toast({
-        title: "Connected Successfully",
-        description: "Your Google Drive has been connected",
-      });
-      fetchConnections();
-      // Clean URL
-      window.history.replaceState({}, '', '/connect');
-    } else if (oauthStatus === 'error') {
-      toast({
-        title: "Connection Failed",
-        description: oauthMessage || "Failed to connect Google Drive",
-        variant: "destructive",
-      });
-      // Clean URL
-      window.history.replaceState({}, '', '/connect');
-    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const fetchConnections = async () => {
@@ -111,8 +117,20 @@ const Connect = () => {
 
       if (error) throw error;
 
-      // Redirect to OAuth URL in same tab
-      window.location.href = data.authUrl;
+      // Open OAuth URL in popup
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      const popup = window.open(
+        data.authUrl,
+        'OAuth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        window.location.href = data.authUrl;
+      }
     } catch (error) {
       console.error('Error initiating OAuth:', error);
       toast({

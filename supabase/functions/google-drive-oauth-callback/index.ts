@@ -23,17 +23,10 @@ serve(async (req) => {
 
     if (error) {
       console.error('OAuth error:', error);
-      const returnUrl = fallbackReturnUrl || '/connect';
-      const redirectUrl = `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}oauth=error&message=${encodeURIComponent(error)}`;
-      
-      return new Response(null, {
-        status: 302,
-        headers: { 
-          'Location': redirectUrl,
-          ...corsHeaders,
-          'Cache-Control': 'no-store'
-        },
-      });
+      return new Response(
+        `<html><body><script>window.opener.postMessage({ type: 'oauth-error', error: '${error}' }, '*'); window.close();</script></body></html>`,
+        { status: 200, headers: { 'Content-Type': 'text/html' } }
+      );
     }
 
     if (!code || !state) {
@@ -143,33 +136,35 @@ serve(async (req) => {
 
     console.log('OAuth flow completed successfully');
 
-    // Server-side redirect to search page with success flag
-    const returnUrl = stateRecord.return_url || '/search';
-    const redirectUrl = `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}oauth=success`;
-    
-    return new Response(null, {
-      status: 302,
-      headers: { 
-        'Location': redirectUrl,
-        ...corsHeaders,
-        'Cache-Control': 'no-store'
-      },
+    // Return success page with robust redirect fallback
+    // Redirect to return_url if provided (more reliable than inline JS)
+    if (stateRecord.return_url) {
+      const redirectTo = `${stateRecord.return_url}?oauth=success`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
+      });
+    }
+
+    // Fallback minimal response if we don't have a return URL
+    return new Response('Connection successful. You can close this window.', {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
     });
   } catch (error) {
     console.error('Error in google-drive-oauth-callback:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    
-    // Server-side redirect to connect page with error
-    const returnUrl = fallbackReturnUrl || '/connect';
-    const redirectUrl = `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}oauth=error&message=${encodeURIComponent(errorMessage)}`;
-    
-    return new Response(null, {
-      status: 302,
-      headers: { 
-        'Location': redirectUrl,
-        ...corsHeaders,
-        'Cache-Control': 'no-store'
-      },
+    if (fallbackReturnUrl) {
+      const redirectTo = `${fallbackReturnUrl}?oauth=error&reason=${encodeURIComponent(errorMessage)}`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
+      });
+    }
+
+    return new Response(`Connection failed: ${errorMessage}` , {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
     });
   }
 });
