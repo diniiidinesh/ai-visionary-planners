@@ -23,10 +23,59 @@ serve(async (req) => {
 
     if (error) {
       console.error('OAuth error:', error);
-      return new Response(
-        `<html><body><script>window.opener.postMessage({ type: 'oauth-error', error: '${error}' }, '*'); window.close();</script></body></html>`,
-        { status: 200, headers: { 'Content-Type': 'text/html' } }
-      );
+      const errorHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Authorization Cancelled</title>
+            <style>
+              body {
+                font-family: system-ui, -apple-system, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                color: white;
+              }
+              .container {
+                text-align: center;
+                padding: 2rem;
+              }
+              .error-icon {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.2);
+                margin: 0 auto 1rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 3rem;
+              }
+              h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+              p { margin: 0; opacity: 0.9; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="error-icon">✕</div>
+              <h1>Authorization Cancelled</h1>
+              <p>Closing window...</p>
+            </div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'oauth-error', error: '${error}' }, '*');
+                setTimeout(() => window.close(), 1000);
+              } else {
+                setTimeout(() => window.close(), 2000);
+              }
+            </script>
+          </body>
+        </html>
+      `;
+      return new Response(errorHtml, { status: 200, headers: { 'Content-Type': 'text/html' } });
     }
 
     if (!code || !state) {
@@ -136,35 +185,137 @@ serve(async (req) => {
 
     console.log('OAuth flow completed successfully');
 
-    // Return success page with robust redirect fallback
-    // Redirect to return_url if provided (more reliable than inline JS)
-    if (stateRecord.return_url) {
-      const redirectTo = `${stateRecord.return_url}?oauth=success`;
-      return new Response(null, {
-        status: 302,
-        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
-      });
-    }
+    // Send success message to parent window and close popup
+    const postMessageOrigin = stateRecord.post_message_origin || '*';
+    const successHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authorization Successful</title>
+          <style>
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+            }
+            .container {
+              text-align: center;
+              padding: 2rem;
+            }
+            .checkmark {
+              width: 80px;
+              height: 80px;
+              border-radius: 50%;
+              background: rgba(255,255,255,0.2);
+              margin: 0 auto 1rem;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 3rem;
+            }
+            h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+            p { margin: 0; opacity: 0.9; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="checkmark">✓</div>
+            <h1>Connected Successfully</h1>
+            <p>Returning to the app...</p>
+          </div>
+          <script>
+            try {
+              if (window.opener) {
+                window.opener.postMessage({ type: 'oauth-success' }, '${postMessageOrigin}');
+                setTimeout(() => window.close(), 500);
+              } else {
+                // Fallback for browsers that block window.close()
+                window.location.href = '${stateRecord.return_url || '/search'}';
+              }
+            } catch (e) {
+              console.error('PostMessage error:', e);
+              window.location.href = '${stateRecord.return_url || '/search'}';
+            }
+          </script>
+        </body>
+      </html>
+    `;
 
-    // Fallback minimal response if we don't have a return URL
-    return new Response('Connection successful. You can close this window.', {
+    return new Response(successHtml, {
       status: 200,
-      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+      headers: { 'Content-Type': 'text/html', ...corsHeaders },
     });
   } catch (error) {
     console.error('Error in google-drive-oauth-callback:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    if (fallbackReturnUrl) {
-      const redirectTo = `${fallbackReturnUrl}?oauth=error&reason=${encodeURIComponent(errorMessage)}`;
-      return new Response(null, {
-        status: 302,
-        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
-      });
-    }
+    
+    // Send error message to parent window and close popup
+    const errorHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authorization Failed</title>
+          <style>
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+              color: white;
+            }
+            .container {
+              text-align: center;
+              padding: 2rem;
+            }
+            .error-icon {
+              width: 80px;
+              height: 80px;
+              border-radius: 50%;
+              background: rgba(255,255,255,0.2);
+              margin: 0 auto 1rem;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 3rem;
+            }
+            h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+            p { margin: 0; opacity: 0.9; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="error-icon">✕</div>
+            <h1>Connection Failed</h1>
+            <p>Returning to the app...</p>
+          </div>
+          <script>
+            try {
+              if (window.opener) {
+                window.opener.postMessage({ type: 'oauth-error', error: '${errorMessage}' }, '${fallbackOrigin}');
+                setTimeout(() => window.close(), 1000);
+              } else {
+                window.location.href = '${fallbackReturnUrl || '/connect'}';
+              }
+            } catch (e) {
+              console.error('PostMessage error:', e);
+              window.location.href = '${fallbackReturnUrl || '/connect'}';
+            }
+          </script>
+        </body>
+      </html>
+    `;
 
-    return new Response(`Connection failed: ${errorMessage}` , {
+    return new Response(errorHtml, {
       status: 200,
-      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+      headers: { 'Content-Type': 'text/html', ...corsHeaders },
     });
   }
 });
