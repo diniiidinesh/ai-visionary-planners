@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { StoreOAuthTokenSchema } from "../_shared/validation/schemas.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,14 +40,18 @@ serve(async (req) => {
       );
     }
 
-    const { provider, accessToken, refreshToken, iv, expiresIn } = await req.json();
-
-    if (!provider || !accessToken) {
+    const body = await req.json();
+    
+    // Validate input with Zod
+    const validation = StoreOAuthTokenSchema.safeParse(body);
+    if (!validation.success) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields' }),
+        JSON.stringify({ error: 'Invalid input', details: validation.error.issues }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const { provider, accessToken, refreshToken, iv, expiresIn } = validation.data;
 
     const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
 

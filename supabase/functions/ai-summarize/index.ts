@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
+import { AISummarizeSchema } from '../_shared/validation/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,14 +16,18 @@ serve(async (req) => {
   }
 
   try {
-    const { question, documents, queryId } = await req.json();
-
-    if (!question || !documents || documents.length === 0) {
+    const body = await req.json();
+    
+    // Validate input with Zod
+    const validation = AISummarizeSchema.safeParse(body);
+    if (!validation.success) {
       return new Response(
-        JSON.stringify({ error: 'Question and documents are required' }),
+        JSON.stringify({ error: 'Invalid input', details: validation.error.issues }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const { question, documents, queryId } = validation.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
