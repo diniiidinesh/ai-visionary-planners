@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
+import { MultiSourceSearchSchema } from '../_shared/validation/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +27,18 @@ serve(async (req) => {
   }
 
   try {
-    const { searchVariations, documentTypes, entities, originalQuery, dateRange } = await req.json();
+    const body = await req.json();
+    
+    // Validate input with Zod
+    const validation = MultiSourceSearchSchema.safeParse(body);
+    if (!validation.success) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid input', details: validation.error.issues }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { searchVariations, documentTypes, entities, originalQuery, dateRange } = validation.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {

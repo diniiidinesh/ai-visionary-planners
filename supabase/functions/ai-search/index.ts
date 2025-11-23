@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
+import { AISearchSchema } from '../_shared/validation/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,14 +16,18 @@ serve(async (req) => {
   }
 
   try {
-    const { query } = await req.json();
+    const body = await req.json();
     
-    if (!query || query.trim().length === 0) {
+    // Validate input with Zod
+    const validation = AISearchSchema.safeParse(body);
+    if (!validation.success) {
       return new Response(
-        JSON.stringify({ error: 'Query is required' }),
+        JSON.stringify({ error: 'Invalid input', details: validation.error.issues }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const { query } = validation.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
