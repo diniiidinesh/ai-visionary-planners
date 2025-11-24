@@ -43,7 +43,11 @@ const Search = () => {
   const [searchStage, setSearchStage] = useState<SearchStage>('idle');
   const [queryId, setQueryId] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [processingLogs, setProcessingLogs] = useState<string[]>([]);
+  interface ProcessingLog {
+    message: string;
+    timestamp: string;
+  }
+  const [processingLogs, setProcessingLogs] = useState<ProcessingLog[]>([]);
   const [queryDetails, setQueryDetails] = useState<{
     entities?: string[];
     searchVariations?: string[];
@@ -134,7 +138,10 @@ const Search = () => {
                                    'Lovable AI';
       const searchModelName = searchPrefs?.search_model || 'default model';
       
-      setProcessingLogs(prev => [...prev, `🔍 Analyzing your question with ${searchProviderLabel} (${searchModelName})...`]);
+      setProcessingLogs(prev => [...prev, {
+        message: `🔍 Analyzing your question with ${searchProviderLabel} (${searchModelName})...`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       
       // Step 1: AI Query Processing
       const { data: queryPlan, error: queryError } = await supabase.functions.invoke('ai-search', {
@@ -156,14 +163,23 @@ const Search = () => {
         intent: queryPlan.intent
       });
       
-      setProcessingLogs(prev => [...prev, `✓ Identified ${queryPlan.entities?.length || 0} key entities`]);
-      setProcessingLogs(prev => [...prev, `✓ Generated ${queryPlan.searchVariations?.length || 0} search variations`]);
+      setProcessingLogs(prev => [...prev, {
+        message: `✓ Identified ${queryPlan.entities?.length || 0} key entities`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
+      setProcessingLogs(prev => [...prev, {
+        message: `✓ Generated ${queryPlan.searchVariations?.length || 0} search variations`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       setQueryId(queryPlan.queryId);
       setSearchStage('searching');
 
       // Step 2: Multi-Source Search
       console.log("Step 2: Searching sources...");
-      setProcessingLogs(prev => [...prev, "📂 Searching across your Google Drive..."]);
+      setProcessingLogs(prev => [...prev, {
+        message: "📂 Searching across your Google Drive...",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       
       const { data: searchData, error: searchError } = await supabase.functions.invoke('multi-source-search', {
         body: { 
@@ -197,7 +213,10 @@ const Search = () => {
 
       if (results.length === 0) {
         setSearchStage('done');
-        setProcessingLogs(prev => [...prev, "❌ No matching documents found"]);
+        setProcessingLogs(prev => [...prev, {
+          message: "❌ No matching documents found",
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }]);
         toast({
           title: "No results found",
           description: "Try a different search query",
@@ -206,8 +225,14 @@ const Search = () => {
         return;
       }
 
-      setProcessingLogs(prev => [...prev, `✓ Found ${results.length} relevant documents`]);
-      setProcessingLogs(prev => [...prev, "📄 Retrieving document content..."]);
+      setProcessingLogs(prev => [...prev, {
+        message: `✓ Found ${results.length} relevant documents`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
+      setProcessingLogs(prev => [...prev, {
+        message: "📄 Retrieving document content...",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       setSearchStage('summarizing');
 
       // Step 3: AI Summarization
@@ -225,7 +250,10 @@ const Search = () => {
                            'Lovable AI';
       const modelName = userPrefs?.summarize_model || 'default model';
       
-      setProcessingLogs(prev => [...prev, `✨ Generating AI summary with ${providerLabel} (${modelName})...`]);
+      setProcessingLogs(prev => [...prev, {
+        message: `✨ Generating AI summary with ${providerLabel} (${modelName})...`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       
       const { data: summaryData, error: summaryError } = await supabase.functions.invoke('ai-summarize', {
         body: {
@@ -237,7 +265,10 @@ const Search = () => {
 
       if (summaryError) {
         console.error("Summary error:", summaryError);
-        setProcessingLogs(prev => [...prev, "⚠️ Summary generation encountered an error"]);
+        setProcessingLogs(prev => [...prev, {
+          message: "⚠️ Summary generation encountered an error",
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }]);
         // Don't fail the whole search if summary fails
         toast({
           title: "Summary generation failed",
@@ -246,12 +277,18 @@ const Search = () => {
         });
       } else {
         console.log("Summary generated");
-        setProcessingLogs(prev => [...prev, "✓ AI summary generated successfully"]);
+        setProcessingLogs(prev => [...prev, {
+          message: "✓ AI summary generated successfully",
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }]);
         setAiSummary(summaryData.summary);
       }
 
       setSearchStage('done');
-      setProcessingLogs(prev => [...prev, "✅ Search complete!"]);
+      setProcessingLogs(prev => [...prev, {
+        message: "✅ Search complete!",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
       toast({
         title: "Search complete",
         description: `Found ${results.length} result(s) with AI summary`,
@@ -510,9 +547,9 @@ const Search = () => {
                             {processingLogs.map((log, index) => (
                               <div key={index} className="flex items-start gap-2 text-sm">
                                 <span className="text-muted-foreground font-mono text-xs mt-0.5">
-                                  {new Date().toLocaleTimeString('en-US', { hour12: false })}
+                                  {log.timestamp}
                                 </span>
-                                <span className="flex-1">{log}</span>
+                                <span className="flex-1">{log.message}</span>
                               </div>
                             ))}
                             {isSearching && (
@@ -545,8 +582,8 @@ const Search = () => {
                   </div>
                 </div>
                 <div 
-                  className="prose prose-sm max-w-none dark:prose-invert"
-                  dangerouslySetInnerHTML={{ 
+                  className="prose prose-sm max-w-none dark:prose-invert text-foreground"
+                  dangerouslySetInnerHTML={{
                     __html: DOMPurify.sanitize(
                       aiSummary
                         // First handle markdown-style links [text](url)
