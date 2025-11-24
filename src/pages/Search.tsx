@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +54,8 @@ const Search = () => {
     documentTypes?: string[];
     intent?: string;
   }>({});
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
 
   useEffect(() => {
     const verifyConnections = async () => {
@@ -62,6 +64,9 @@ const Search = () => {
         navigate("/auth");
         return;
       }
+
+      setUserEmail(user.email || "");
+      setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || "User");
       
       const { hasConnections } = await checkUserConnections(user.id);
       if (!hasConnections) {
@@ -328,7 +333,14 @@ const Search = () => {
                   <ChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{userName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{userEmail}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
                   Logout
