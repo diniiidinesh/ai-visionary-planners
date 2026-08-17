@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Search as SearchIcon, Filter, Calendar, FileText, Users, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown } from "lucide-react";
+import { Search as SearchIcon, Filter, Calendar, FileText, Users, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -395,6 +395,11 @@ const Search = () => {
                     <p className="text-xs leading-none text-muted-foreground">{userEmail}</p>
                   </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/ai-settings")}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  AI Settings
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
