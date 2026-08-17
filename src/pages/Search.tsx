@@ -43,6 +43,14 @@ const Search = () => {
   const [searchStage, setSearchStage] = useState<SearchStage>('idle');
   const [queryId, setQueryId] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  interface RagExcerpt {
+    ref: number;
+    title: string;
+    url?: string;
+    similarity: number;
+    content: string;
+  }
+  const [ragExcerpts, setRagExcerpts] = useState<RagExcerpt[]>([]);
   interface ProcessingLog {
     message: string;
     timestamp: string;
