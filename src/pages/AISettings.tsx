@@ -144,6 +144,14 @@ export default function AISettings() {
           summarizeOrgId: data.summarize_org_id || '',
           enableCostTracking: data.enable_cost_tracking || false,
           monthlyBudgetUsd: data.monthly_budget_usd || undefined,
+          temperature: Number(data.temperature ?? TUNING_DEFAULTS.temperature),
+          maxOutputTokens: data.max_output_tokens ?? TUNING_DEFAULTS.maxOutputTokens,
+          retrievalTopK: data.retrieval_top_k ?? TUNING_DEFAULTS.retrievalTopK,
+          passagesToModel: data.passages_to_model ?? TUNING_DEFAULTS.passagesToModel,
+          minSimilarity: Number(data.min_similarity ?? TUNING_DEFAULTS.minSimilarity),
+          maxPassagesPerDoc: data.max_passages_per_doc ?? TUNING_DEFAULTS.maxPassagesPerDoc,
+          retrievalMode: (data.retrieval_mode as AIPreferences['retrievalMode']) || TUNING_DEFAULTS.retrievalMode,
+          debugRetrieval: data.debug_retrieval ?? TUNING_DEFAULTS.debugRetrieval,
         });
       }
     } catch (error: any) {
@@ -167,6 +175,14 @@ export default function AISettings() {
           summarizeOrgId: preferences.summarizeOrgId || null,
           enableCostTracking: preferences.enableCostTracking,
           monthlyBudgetUsd: preferences.monthlyBudgetUsd || null,
+          temperature: preferences.temperature,
+          maxOutputTokens: preferences.maxOutputTokens,
+          retrievalTopK: preferences.retrievalTopK,
+          passagesToModel: preferences.passagesToModel,
+          minSimilarity: preferences.minSimilarity,
+          maxPassagesPerDoc: preferences.maxPassagesPerDoc,
+          retrievalMode: preferences.retrievalMode,
+          debugRetrieval: preferences.debugRetrieval,
         },
       });
 
