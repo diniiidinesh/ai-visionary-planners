@@ -11,7 +11,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FILES_PER_BATCH = 10;
+const FILES_PER_BATCH = 3;
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -93,6 +94,12 @@ serve(async (req) => {
           existing.source_modified_time &&
           new Date(existing.source_modified_time).getTime() === new Date(file.modifiedTime).getTime()
         ) {
+          skipped++;
+          continue;
+        }
+
+        if (file.size && Number(file.size) > MAX_FILE_BYTES) {
+          await recordStatus(supabase, user.id, file, 'skipped_too_large', 0, null, 'File too large to index');
           skipped++;
           continue;
         }
