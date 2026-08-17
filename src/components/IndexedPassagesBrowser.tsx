@@ -4,6 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Loader2, RefreshCw, Search as SearchIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -68,6 +69,8 @@ const IndexedPassagesBrowser = () => {
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [filter, setFilter] = useState("");
   const [coverage, setCoverage] = useState<Record<string, Coverage>>({});
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [embeddingFilter, setEmbeddingFilter] = useState<string>("all");
 
   const loadDocs = useCallback(async () => {
     setLoading(true);
@@ -114,13 +117,36 @@ const IndexedPassagesBrowser = () => {
   const needle = filter.trim().toLowerCase();
 
   const visibleDocs = useMemo(() => {
-    if (!needle) return docs;
     return docs.filter((d) => {
-      if (d.title?.toLowerCase().includes(needle)) return true;
-      const loaded = chunks[d.source_id];
-      return loaded?.some((c) => c.content.toLowerCase().includes(needle));
+      const status = d.ingest_status ?? "unknown";
+      if (statusFilter !== "all") {
+        if (statusFilter === "skipped") {
+          if (!status.startsWith("skipped")) return false;
+        } else if (statusFilter === "pending") {
+          if (status !== "pending" && status !== "unknown") return false;
+        } else if (status !== statusFilter) return false;
+      }
+
+      if (embeddingFilter !== "all") {
+        const cov = coverage[d.source_id];
+        const openai = cov?.openai_chunks ?? 0;
+        const voyage = cov?.voyage_chunks ?? 0;
+        const total = cov?.total_chunks ?? 0;
+        if (embeddingFilter === "both" && !(openai > 0 && voyage > 0)) return false;
+        if (embeddingFilter === "openai_only" && !(openai > 0 && voyage === 0)) return false;
+        if (embeddingFilter === "voyage_only" && !(voyage > 0 && openai === 0)) return false;
+        if (embeddingFilter === "none" && total > 0 && (openai > 0 || voyage > 0)) return false;
+        if (embeddingFilter === "partial" && !(total > 0 && (openai < total || voyage < total))) return false;
+      }
+
+      if (needle) {
+        if (d.title?.toLowerCase().includes(needle)) return true;
+        const loaded = chunks[d.source_id];
+        return Boolean(loaded?.some((c) => c.content.toLowerCase().includes(needle)));
+      }
+      return true;
     });
-  }, [docs, chunks, needle]);
+  }, [docs, chunks, needle, coverage, statusFilter, embeddingFilter]);
 
   const highlight = (text: string) => {
     if (!needle) return text;
@@ -164,13 +190,53 @@ const IndexedPassagesBrowser = () => {
           />
         </div>
 
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger aria-label="Filter by chunking status">
+              <SelectValue placeholder="Chunking status" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover z-50">
+              <SelectItem value="all">All chunking statuses</SelectItem>
+              <SelectItem value="indexed">Indexed</SelectItem>
+              <SelectItem value="pending">Pending / queued</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="skipped">Skipped (any reason)</SelectItem>
+              <SelectItem value="skipped_no_text">Skipped — no readable text</SelectItem>
+              <SelectItem value="skipped_too_large">Skipped — too large</SelectItem>
+              <SelectItem value="skipped_unsupported">Skipped — unsupported format</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={embeddingFilter} onValueChange={setEmbeddingFilter}>
+            <SelectTrigger aria-label="Filter by embedding space">
+              <SelectValue placeholder="Embedding space" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover z-50">
+              <SelectItem value="all">All embedding spaces</SelectItem>
+              <SelectItem value="both">Both OpenAI and Voyage</SelectItem>
+              <SelectItem value="openai_only">OpenAI only</SelectItem>
+              <SelectItem value="voyage_only">Voyage only</SelectItem>
+              <SelectItem value="partial">Partially embedded</SelectItem>
+              <SelectItem value="none">No embeddings</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {!loading && (
+          <p className="text-xs text-muted-foreground">
+            Showing {visibleDocs.length} of {docs.length} documents
+          </p>
+        )}
+
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading documents…
           </div>
         ) : visibleDocs.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nothing indexed yet. Run “Index my Drive” above.
+            {docs.length === 0
+              ? "Nothing indexed yet. Run “Index my Drive” above."
+              : "No documents match the current filters."}
           </p>
         ) : (
           <Accordion type="single" collapsible value={openDoc} onValueChange={handleOpen}>
