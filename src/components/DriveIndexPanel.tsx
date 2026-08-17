@@ -98,7 +98,8 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
 
     try {
       // Batches are resumable: keep calling until the function reports done.
-      for (let batch = 0; batch < 500; batch++) {
+      // One file per invocation server-side, so allow a large number of batches.
+      for (let batch = 0; batch < 3000; batch++) {
         const { data, error } = await supabase.functions.invoke("ingest-drive-documents", {
           body: { pageToken, fullResync },
         });
@@ -107,7 +108,7 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
           const details = (data as any)?.error ?? error.message;
           // A single batch can hit the function's CPU/time limit on heavy files.
           // Retry the same page a few times before giving up on the whole run.
-          if (retries < 3) {
+          if (retries < 5) {
             retries++;
             await new Promise((r) => setTimeout(r, 1500 * retries));
             continue;
