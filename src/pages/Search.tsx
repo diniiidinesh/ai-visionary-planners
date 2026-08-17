@@ -129,6 +129,52 @@ const Search = () => {
         return;
       }
 
+      // Step 0: RAG over the indexed Drive passages (falls back to live search when nothing is indexed)
+      setProcessingLogs(prev => [...prev, {
+        message: "🧠 Searching your indexed document passages...",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
+
+      const { data: ragQueryRow } = await supabase
+        .from('search_queries')
+        .insert({ user_id: user.id, original_query: searchQuery })
+        .select()
+        .single();
+
+      const ragResponse = await supabase.functions.invoke('rag-answer', {
+        body: { question: searchQuery, queryId: ragQueryRow?.id }
+      });
+
+      const ragData: any = ragResponse.data;
+      if (!ragResponse.error && ragData?.summary) {
+        setQueryId(ragQueryRow?.id ?? null);
+        setAiSummary(ragData.summary);
+        setRagExcerpts(ragData.excerpts || []);
+        setSearchResults((ragData.sources || []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          mimeType: s.mimeType || '',
+          webViewLink: s.url,
+          modifiedTime: '',
+          relevanceScore: Math.round((s.topSimilarity || 0) * 100),
+          source: 'google_drive',
+        })));
+        setProcessingLogs(prev => [...prev, {
+          message: `✓ Answered from ${ragData.chunksUsed} indexed passage(s)`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }]);
+        setSearchStage('done');
+        setIsSearching(false);
+        return;
+      }
+
+      setRagExcerpts([]);
+      console.log('RAG unavailable, falling back to live Drive search', ragResponse.error);
+      setProcessingLogs(prev => [...prev, {
+        message: "ℹ️ No indexed passages yet — searching Google Drive live instead",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
+
       console.log("Step 1: AI Query Processing...");
       
       // Fetch user's AI preferences for search model
