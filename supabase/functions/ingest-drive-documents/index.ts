@@ -5,6 +5,7 @@ import { getDriveAccessToken, DriveConnectionError, EXPORTABLE_MIME_TYPES, conte
 import { chunkText, hashContent } from '../_shared/rag/chunker.ts';
 import { embedTexts, EMBEDDING_MODEL, EmbeddingError } from '../_shared/rag/embeddings.ts';
 import { extractText, getDocumentProxy } from 'https://esm.sh/unpdf@0.12.1';
+import { extractOoxmlText, isOoxml, UNSUPPORTED_LEGACY_MIME_TYPES } from '../_shared/rag/ooxml.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,6 +105,15 @@ serve(async (req) => {
           continue;
         }
 
+        if (UNSUPPORTED_LEGACY_MIME_TYPES.includes(file.mimeType)) {
+          await recordStatus(
+            supabase, user.id, file, 'skipped_unsupported', 0, null,
+            'Legacy Office format (.doc/.xls/.ppt). Save it as .docx/.xlsx/.pptx or a Google Doc to index it.',
+          );
+          skipped++;
+          continue;
+        }
+
         const contentResponse = await fetch(contentUrlFor(file.id, file.mimeType), {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -122,6 +132,9 @@ serve(async (req) => {
           const pdf = await getDocumentProxy(buffer);
           const { text: pdfText } = await extractText(pdf, { mergePages: true });
           text = String(pdfText).replace(/\u0000/g, '').trim();
+        } else if (isOoxml(file.mimeType)) {
+          const buffer = new Uint8Array(await contentResponse.arrayBuffer());
+          text = extractOoxmlText(buffer, file.mimeType).replace(/\u0000/g, '').trim();
         } else {
           text = (await contentResponse.text()).replace(/\u0000/g, '').trim();
         }

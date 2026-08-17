@@ -88,6 +88,15 @@ export const EXPORTABLE_MIME_TYPES = [
   'text/plain',
   'text/markdown',
   'text/csv',
+  // Uploaded Microsoft Office files (OOXML) - downloaded raw and parsed in-process.
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Legacy binary Office formats: listed so they are reported as unsupported
+  // rather than silently missing from the index.
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
 ];
 
 export function contentUrlFor(fileId: string, mimeType: string): string {
