@@ -521,6 +521,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      embedding_coverage_by_document: {
+        Args: never
+        Returns: {
+          openai_chunks: number
+          openai_model: string
+          source_id: string
+          total_chunks: number
+          voyage_chunks: number
+          voyage_model: string
+        }[]
+      }
       get_oauth_tokens: {
         Args: { p_provider: string; p_user_id: string }
         Returns: Json
