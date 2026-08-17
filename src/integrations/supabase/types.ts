@@ -133,6 +133,8 @@ export type Database = {
           doc_modified_time: string | null
           embedding: string
           embedding_model: string
+          embedding_voyage: string | null
+          embedding_voyage_model: string | null
           folder_path: string | null
           full_url: string | null
           heading: string | null
@@ -159,6 +161,8 @@ export type Database = {
           doc_modified_time?: string | null
           embedding: string
           embedding_model: string
+          embedding_voyage?: string | null
+          embedding_voyage_model?: string | null
           folder_path?: string | null
           full_url?: string | null
           heading?: string | null
@@ -185,6 +189,8 @@ export type Database = {
           doc_modified_time?: string | null
           embedding?: string
           embedding_model?: string
+          embedding_voyage?: string | null
+          embedding_voyage_model?: string | null
           folder_path?: string | null
           full_url?: string | null
           heading?: string | null
@@ -410,6 +416,7 @@ export type Database = {
           auto_sync_daily: boolean
           created_at: string | null
           debug_retrieval: boolean
+          embedding_provider: string
           enable_cost_tracking: boolean | null
           id: string
           max_output_tokens: number
@@ -433,6 +440,7 @@ export type Database = {
           auto_sync_daily?: boolean
           created_at?: string | null
           debug_retrieval?: boolean
+          embedding_provider?: string
           enable_cost_tracking?: boolean | null
           id?: string
           max_output_tokens?: number
@@ -456,6 +464,7 @@ export type Database = {
           auto_sync_daily?: boolean
           created_at?: string | null
           debug_retrieval?: boolean
+          embedding_provider?: string
           enable_cost_tracking?: boolean | null
           id?: string
           max_output_tokens?: number
@@ -573,6 +582,37 @@ export type Database = {
           p_source_type?: string
           p_vector_weight?: number
           query_embedding: string
+          query_texts: string[]
+        }
+        Returns: {
+          author: string
+          chunk_index: number
+          content: string
+          doc_modified_time: string
+          full_url: string
+          fused_score: number
+          heading: string
+          id: string
+          keyword_rank: number
+          keyword_score: number
+          mime_type: string
+          similarity: number
+          source_id: string
+          source_type: string
+          title: string
+          vector_rank: number
+        }[]
+      }
+      match_document_chunks_hybrid_space: {
+        Args: {
+          match_count: number
+          p_embedding_space: string
+          p_keyword_weight?: number
+          p_min_similarity?: number
+          p_source_type?: string
+          p_vector_weight?: number
+          query_embedding_openai: string
+          query_embedding_voyage: string
           query_texts: string[]
         }
         Returns: {

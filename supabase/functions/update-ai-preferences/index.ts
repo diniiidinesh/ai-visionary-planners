@@ -28,6 +28,7 @@ serve(async (req) => {
       minSimilarity,
       maxPassagesPerDoc,
       retrievalMode,
+      embeddingProvider,
       debugRetrieval
     } = await req.json();
 
@@ -81,6 +82,7 @@ serve(async (req) => {
         min_similarity: clamp(minSimilarity, 0, 0.9, 0.15),
         max_passages_per_doc: Math.round(clamp(maxPassagesPerDoc, 1, 5, 3)),
         retrieval_mode: ['vector', 'hybrid', 'keyword'].includes(retrievalMode) ? retrievalMode : 'hybrid',
+        embedding_provider: ['openai', 'voyage'].includes(embeddingProvider) ? embeddingProvider : 'openai',
         debug_retrieval: debugRetrieval === true,
         updated_at: new Date().toISOString()
       }, {

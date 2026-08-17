@@ -3,7 +3,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { getDriveAccessToken, DriveConnectionError, EXPORTABLE_MIME_TYPES, contentUrlFor } from '../_shared/drive/token.ts';
 import { chunkText, hashContent, embeddingInput, CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
-import { embedTexts, EMBEDDING_MODEL, EmbeddingError } from '../_shared/rag/embeddings.ts';
+import {
+  embedTexts,
+  EMBEDDING_MODEL,
+  EmbeddingError,
+  VOYAGE_EMBEDDING_MODEL,
+  voyageConfigured,
+} from '../_shared/rag/embeddings.ts';
 import { extractText, getDocumentProxy } from 'https://esm.sh/unpdf@0.12.1';
 import { extractOoxmlText, isOoxml, UNSUPPORTED_LEGACY_MIME_TYPES } from '../_shared/rag/ooxml.ts';
 import { csvToMarkdown } from '../_shared/rag/csv.ts';
@@ -182,9 +188,12 @@ serve(async (req) => {
 
         const chunks = chunkText(text, CHUNK_SIZE, CHUNK_OVERLAP);
         // Embed title + heading alongside the body so the vector carries document context.
-        const embeddings = await embedTexts(
-          chunks.map((c) => embeddingInput(file.name, c.heading, c.content))
-        );
+        const inputs = chunks.map((c) => embeddingInput(file.name, c.heading, c.content));
+        const embeddings = await embedTexts(inputs, 'openai');
+        // Dual-write the Voyage space when the key is present, so both indexes
+        // stay in sync and can be compared on identical content.
+        const withVoyage = voyageConfigured();
+        const voyageEmbeddings = withVoyage ? await embedTexts(inputs, 'voyage', 'document') : null;
 
         // Replace previous chunks for this file.
         await supabase
@@ -207,6 +216,8 @@ serve(async (req) => {
           content_hash: contentHash,
           embedding: JSON.stringify(embeddings[i]),
           embedding_model: EMBEDDING_MODEL,
+          embedding_voyage: voyageEmbeddings ? JSON.stringify(voyageEmbeddings[i]) : null,
+          embedding_voyage_model: voyageEmbeddings ? VOYAGE_EMBEDDING_MODEL : null,
           char_count: chunk.content.length,
           author: meta.author,
           doc_created_time: meta.createdTime,
