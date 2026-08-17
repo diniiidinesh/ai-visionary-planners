@@ -1,5 +1,17 @@
 import { AIProviderConfig } from './types.ts';
 
+/** Chat defaults per provider, used when the user has no explicit model saved. */
+const DEFAULT_CHAT_MODELS: Record<string, { search: string; summarize: string }> = {
+  lovable: { search: 'google/gemini-2.5-flash', summarize: 'google/gemini-2.5-pro' },
+  openai: { search: 'gpt-4.1-mini', summarize: 'gpt-4.1' },
+  google: { search: 'gemini-2.5-flash', summarize: 'gemini-2.5-pro' },
+};
+
+/** Models that only work on /v1/embeddings — never valid for a chat completion. */
+function isEmbeddingModel(model: string): boolean {
+  return /embedding|embed-|voyage/i.test(model);
+}
+
 export class AIConfigManager {
   private supabase: any;
   private userId: string;
@@ -20,7 +32,14 @@ export class AIConfigManager {
     // If user has custom preferences, use them
     if (preferences && preferences[`${purpose}_provider`]) {
       const provider = preferences[`${purpose}_provider`];
-      const model = preferences[`${purpose}_model`];
+      const defaults = DEFAULT_CHAT_MODELS[provider] ?? DEFAULT_CHAT_MODELS.lovable;
+      let model = preferences[`${purpose}_model`];
+      // A missing model would send `model: null` to the gateway, and an embedding
+      // model id gets rejected with "model is not a chat model". Fall back to the
+      // provider's chat default in both cases.
+      if (!model || typeof model !== 'string' || isEmbeddingModel(model)) {
+        model = defaults[purpose];
+      }
       
       // Get API key for the provider
       const apiKey = await this.getAPIKey(provider);
