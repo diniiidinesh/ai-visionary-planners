@@ -668,6 +668,36 @@ const Search = () => {
                     )
                   }}
                 />
+                {ragExcerpts.length > 0 && (
+                  <Collapsible className="mt-5">
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                      <ChevronDown className="h-4 w-4" />
+                      <span className="font-medium">Show cited passages ({ragExcerpts.length})</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3 space-y-3">
+                      {ragExcerpts.map((excerpt) => (
+                        <div key={excerpt.ref} className="rounded-lg border bg-card/60 p-3">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <a
+                              href={excerpt.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-primary hover:underline truncate"
+                            >
+                              [{excerpt.ref}] {excerpt.title}
+                            </a>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {(excerpt.similarity * 100).toFixed(0)}% match
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
+                            {excerpt.content}
+                          </p>
+                        </div>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
               </Card>
             )}
 
