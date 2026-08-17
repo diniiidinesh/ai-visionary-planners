@@ -37,9 +37,12 @@ const Connect = () => {
 
     // Listen for OAuth callback messages
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin && event.origin !== window.location.origin) {
-        return;
-      }
+      // The popup runs on the backend functions origin, so accept our own
+      // origin plus the Supabase functions origin.
+      const allowed =
+        event.origin === window.location.origin ||
+        /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(event.origin);
+      if (!allowed) return;
       if (event.data?.type === "oauth-success") {
         console.log("OAuth success - tokens stored server-side");
         toast({
@@ -47,7 +50,6 @@ const Connect = () => {
           description: "Your account has been connected",
         });
         fetchConnections();
-        setTimeout(() => navigate("/search"), 1000);
         setLoading(false);
       } else if (event.data?.type === "oauth-error") {
         console.error("OAuth error:", event.data.error);
@@ -57,7 +59,6 @@ const Connect = () => {
           variant: "destructive",
         });
         setLoading(false);
-        setTimeout(() => navigate("/search"), 1500);
       }
     };
 
@@ -112,7 +113,7 @@ const Connect = () => {
 
       const { data, error } = await supabase.functions.invoke('google-drive-oauth-init', {
         body: {
-          returnUrl: `${window.location.origin}/search`,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
           postMessageOrigin: window.location.origin,
         },
       });

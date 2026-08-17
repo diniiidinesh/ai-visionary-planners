@@ -136,35 +136,48 @@ serve(async (req) => {
 
     console.log('OAuth flow completed successfully');
 
-    // Return success page with robust redirect fallback
-    // Redirect to return_url if provided (more reliable than inline JS)
-    if (stateRecord.return_url) {
-      const redirectTo = `${stateRecord.return_url}?oauth=success`;
-      return new Response(null, {
-        status: 302,
-        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
-      });
-    }
-
-    // Fallback minimal response if we don't have a return URL
-    return new Response('Connection successful. You can close this window.', {
+    // Close the popup and notify the opener. If this page was not opened as a
+    // popup (no opener), fall back to a plain redirect to the return URL.
+    return new Response(successHtml(stateRecord.post_message_origin, stateRecord.return_url), {
       status: 200,
-      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+      headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders, 'Cache-Control': 'no-store' },
     });
   } catch (error) {
     console.error('Error in google-drive-oauth-callback:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    if (fallbackReturnUrl) {
-      const redirectTo = `${fallbackReturnUrl}?oauth=error&reason=${encodeURIComponent(errorMessage)}`;
-      return new Response(null, {
-        status: 302,
-        headers: { Location: redirectTo, ...corsHeaders, 'Cache-Control': 'no-store' },
-      });
-    }
-
-    return new Response(`Connection failed: ${errorMessage}` , {
+    return new Response(errorHtml(errorMessage, fallbackOrigin, fallbackReturnUrl), {
       status: 200,
-      headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+      headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders, 'Cache-Control': 'no-store' },
     });
   }
 });
+
+function successHtml(origin: string | null, returnUrl: string | null): string {
+  const targetOrigin = JSON.stringify(origin || '*');
+  const fallback = JSON.stringify(returnUrl ? `${returnUrl}?oauth=success` : '');
+  return `<!doctype html><html><body style="font-family:system-ui;padding:24px">
+<p>Connected. You can close this window.</p>
+<script>
+(function(){
+  var msg = { type: 'oauth-success', provider: 'google_drive' };
+  try { if (window.opener && window.opener !== window) { window.opener.postMessage(msg, ${targetOrigin}); } } catch (e) {}
+  if (window.opener && window.opener !== window) { window.close(); setTimeout(function(){ window.close(); }, 300); }
+  else if (${fallback}) { window.location.replace(${fallback}); }
+})();
+</script></body></html>`;
+}
+
+function errorHtml(message: string, origin: string | null, returnUrl: string | null): string {
+  const targetOrigin = JSON.stringify(origin || '*');
+  const msg = JSON.stringify(message);
+  const fallback = JSON.stringify(returnUrl ? `${returnUrl}?oauth=error` : '');
+  return `<!doctype html><html><body style="font-family:system-ui;padding:24px">
+<p>Connection failed. You can close this window.</p>
+<script>
+(function(){
+  try { if (window.opener && window.opener !== window) { window.opener.postMessage({ type: 'oauth-error', error: ${msg} }, ${targetOrigin}); } } catch (e) {}
+  if (window.opener && window.opener !== window) { window.close(); setTimeout(function(){ window.close(); }, 300); }
+  else if (${fallback}) { window.location.replace(${fallback}); }
+})();
+</script></body></html>`;
+}
