@@ -367,6 +367,10 @@ const Search = () => {
                   <Settings className="mr-2 h-4 w-4" />
                   AI Settings
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/pipeline")}>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  How it works
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
