@@ -3,7 +3,16 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
-import { embedQuery, EmbeddingError, EMBEDDING_MODEL } from '../_shared/rag/embeddings.ts';
+import {
+  embedQuery,
+  EmbeddingError,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIMENSIONS,
+  VOYAGE_EMBEDDING_DIMENSIONS,
+  VOYAGE_EMBEDDING_MODEL,
+  voyageConfigured,
+  type EmbeddingSpace,
+} from '../_shared/rag/embeddings.ts';
 import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
 import { rerank, RerankError } from '../_shared/rag/reranker.ts';
 import { planQuery } from '../_shared/rag/query-planner.ts';
@@ -36,6 +45,7 @@ const RagAnswerSchema = z.object({
     minSimilarity: z.number().min(0).max(0.9).optional(),
     maxPassagesPerDoc: z.number().int().min(1).max(5).optional(),
     retrievalMode: z.enum(['vector', 'hybrid', 'keyword']).optional(),
+    embeddingProvider: z.enum(['openai', 'voyage']).optional(),
     debugRetrieval: z.boolean().optional(),
   }).optional(),
 });
@@ -48,6 +58,7 @@ const DEFAULTS = {
   minSimilarity: 0.15,
   maxPassagesPerDoc: 3,
   retrievalMode: 'hybrid' as const,
+  embeddingProvider: 'openai' as const,
   debugRetrieval: false,
 };
 
@@ -110,7 +121,7 @@ serve(async (req) => {
     // Load tuning preferences, then apply any per-request override.
     const { data: prefs } = await supabase
       .from('user_ai_preferences')
-      .select('temperature, max_output_tokens, retrieval_top_k, passages_to_model, min_similarity, max_passages_per_doc, retrieval_mode, debug_retrieval')
+      .select('temperature, max_output_tokens, retrieval_top_k, passages_to_model, min_similarity, max_passages_per_doc, retrieval_mode, embedding_provider, debug_retrieval')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -122,8 +133,30 @@ serve(async (req) => {
       minSimilarity: overrides?.minSimilarity ?? Number(prefs?.min_similarity ?? DEFAULTS.minSimilarity),
       maxPassagesPerDoc: overrides?.maxPassagesPerDoc ?? (prefs?.max_passages_per_doc ?? DEFAULTS.maxPassagesPerDoc),
       retrievalMode: overrides?.retrievalMode ?? (prefs?.retrieval_mode ?? DEFAULTS.retrievalMode),
+      embeddingProvider: (overrides?.embeddingProvider ?? (prefs?.embedding_provider ?? DEFAULTS.embeddingProvider)) as EmbeddingSpace,
       debugRetrieval: overrides?.debugRetrieval ?? (prefs?.debug_retrieval ?? DEFAULTS.debugRetrieval),
     };
+
+    // Voyage retrieval needs both the key and a Voyage-embedded index.
+    let embeddingSpace: EmbeddingSpace = settings.embeddingProvider;
+    let embeddingFallback: string | null = null;
+    if (embeddingSpace === 'voyage') {
+      if (!voyageConfigured()) {
+        embeddingSpace = 'openai';
+        embeddingFallback = 'VOYAGE_API_KEY is not configured — used the OpenAI embedding space.';
+      } else {
+        const { count: voyageChunks } = await supabase
+          .from('document_chunks')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .not('embedding_voyage', 'is', null);
+        if (!voyageChunks) {
+          embeddingSpace = 'openai';
+          embeddingFallback = 'No Voyage embeddings indexed yet — run a full re-index. Used the OpenAI embedding space.';
+        }
+      }
+    }
+    settings.embeddingProvider = embeddingSpace;
 
     // Documents indexed with a different embedding model or chunk settings.
     const { count: staleDocuments } = await supabase
@@ -148,10 +181,20 @@ serve(async (req) => {
     const retrievalQuery = plan.standaloneQuestion;
 
     const weights = weightsFor(settings.retrievalMode);
-    const queryEmbedding = weights.vector > 0 ? await embedQuery(retrievalQuery) : new Array(3072).fill(0);
+    const activeDims = embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_DIMENSIONS : EMBEDDING_DIMENSIONS;
+    const queryEmbedding = weights.vector > 0
+      ? await embedQuery(retrievalQuery, embeddingSpace)
+      : new Array(activeDims).fill(0);
 
-    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid_multi', {
-      query_embedding: JSON.stringify(queryEmbedding),
+    // The RPC takes both spaces; only the one named by p_embedding_space is read.
+    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid_space', {
+      query_embedding_openai: JSON.stringify(
+        embeddingSpace === 'openai' ? queryEmbedding : new Array(EMBEDDING_DIMENSIONS).fill(0)
+      ),
+      query_embedding_voyage: JSON.stringify(
+        embeddingSpace === 'voyage' ? queryEmbedding : new Array(VOYAGE_EMBEDDING_DIMENSIONS).fill(0)
+      ),
+      p_embedding_space: embeddingSpace,
       query_texts: plan.keywordQueries,
       match_count: settings.retrievalTopK,
       p_source_type: 'google_drive',
@@ -315,6 +358,9 @@ ${context}
         retrieval: settings.debugRetrieval
           ? {
               mode: settings.retrievalMode,
+              embeddingSpace,
+              embeddingModel: embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_MODEL : EMBEDDING_MODEL,
+              embeddingFallback,
               candidates: chunks.map((c) => ({
                 title: c.title,
                 heading: c.heading ?? null,
