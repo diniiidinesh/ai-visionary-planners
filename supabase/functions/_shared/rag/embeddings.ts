@@ -1,5 +1,5 @@
 // Embeddings via the Lovable AI Gateway (OpenAI-compatible /embeddings).
-export const EMBEDDING_MODEL = 'google/gemini-embedding-2';
+export const EMBEDDING_MODEL = 'openai/text-embedding-3-large';
 export const EMBEDDING_DIMENSIONS = 3072;
 const GATEWAY_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
 const MAX_BATCH = 100;
