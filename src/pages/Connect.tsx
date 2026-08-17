@@ -5,6 +5,7 @@ import { CheckCircle2, Circle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import DriveIndexPanel from "@/components/DriveIndexPanel";
 
 const Connect = () => {
   const navigate = useNavigate();
@@ -192,6 +193,10 @@ const Connect = () => {
               </CardContent>
             </Card>
           ))}
+        </div>
+
+        <div className="mb-8">
+          <DriveIndexPanel connected={connections['google_drive'] || false} />
         </div>
 
         <div className="text-center">
