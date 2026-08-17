@@ -173,7 +173,7 @@ export default function AISettings() {
       <div className="container max-w-4xl mx-auto py-8 px-4">
         <Button
           variant="ghost"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/search')}
           className="mb-6"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
