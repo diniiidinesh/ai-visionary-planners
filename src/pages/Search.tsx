@@ -46,11 +46,28 @@ const Search = () => {
   interface RagExcerpt {
     ref: number;
     title: string;
+    heading?: string | null;
+    author?: string | null;
+    modifiedTime?: string | null;
     url?: string;
     similarity: number;
     content: string;
   }
   const [ragExcerpts, setRagExcerpts] = useState<RagExcerpt[]>([]);
+  interface RagCandidate {
+    title: string;
+    heading?: string | null;
+    chunkIndex: number;
+    similarity: number | null;
+    keywordScore: number | null;
+    vectorRank: number | null;
+    keywordRank: number | null;
+    fusedScore: number | null;
+    used: boolean;
+    preview: string;
+  }
+  const [ragDebug, setRagDebug] = useState<{ mode: string; candidates: RagCandidate[] } | null>(null);
+  const [staleDocuments, setStaleDocuments] = useState(0);
   interface ProcessingLog {
     message: string;
     timestamp: string;
