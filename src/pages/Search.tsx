@@ -49,6 +49,7 @@ interface RagDebug {
   mode: string;
   reranked?: boolean;
   retrievalQuery?: string | null;
+  keywordQueries?: string[] | null;
   candidates: RagCandidate[];
 }
 
@@ -487,6 +488,16 @@ const Search = () => {
                             <p className="text-[11px] text-muted-foreground">
                               Rewritten for retrieval: <span className="italic">"{m.ragDebug.retrievalQuery}"</span>
                             </p>
+                          )}
+                          {!!m.ragDebug.keywordQueries?.length && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] text-muted-foreground">Keyword queries:</span>
+                              {m.ragDebug.keywordQueries.map((kq, i) => (
+                                <span key={i} className="px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground text-[10px] font-mono">
+                                  {kq}
+                                </span>
+                              ))}
+                            </div>
                           )}
                           {m.ragDebug.candidates.map((c, i) => (
                             <div key={`${c.title}-${c.chunkIndex}-${i}`} className={`rounded-md border p-2 text-[11px] ${c.used ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
