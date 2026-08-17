@@ -30,6 +30,7 @@ interface AIPreferences {
   minSimilarity: number;
   maxPassagesPerDoc: number;
   retrievalMode: 'vector' | 'hybrid' | 'keyword';
+  embeddingProvider: 'openai' | 'voyage';
   debugRetrieval: boolean;
 }
 
@@ -41,6 +42,7 @@ const TUNING_DEFAULTS = {
   minSimilarity: 0.15,
   maxPassagesPerDoc: 3,
   retrievalMode: 'hybrid' as const,
+  embeddingProvider: 'openai' as const,
   debugRetrieval: false,
 };
 
@@ -181,6 +183,8 @@ export default function AISettings() {
           minSimilarity: Number(data.min_similarity ?? TUNING_DEFAULTS.minSimilarity),
           maxPassagesPerDoc: data.max_passages_per_doc ?? TUNING_DEFAULTS.maxPassagesPerDoc,
           retrievalMode: (data.retrieval_mode as AIPreferences['retrievalMode']) || TUNING_DEFAULTS.retrievalMode,
+          embeddingProvider:
+            (data.embedding_provider as AIPreferences['embeddingProvider']) || TUNING_DEFAULTS.embeddingProvider,
           debugRetrieval: data.debug_retrieval ?? TUNING_DEFAULTS.debugRetrieval,
         });
       }
@@ -212,6 +216,7 @@ export default function AISettings() {
           minSimilarity: preferences.minSimilarity,
           maxPassagesPerDoc: preferences.maxPassagesPerDoc,
           retrievalMode: preferences.retrievalMode,
+          embeddingProvider: preferences.embeddingProvider,
           debugRetrieval: preferences.debugRetrieval,
         },
       });
@@ -502,6 +507,32 @@ export default function AISettings() {
                 <p className="text-xs text-muted-foreground">
                   Hybrid finds paraphrases and exact terms (IDs, error codes, product names) and merges
                   both ranked lists. Keyword-only skips the embedding call entirely.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Embedding space</Label>
+                <Select
+                  value={preferences.embeddingProvider}
+                  onValueChange={(value) =>
+                    setPreferences({
+                      ...preferences,
+                      embeddingProvider: value as AIPreferences['embeddingProvider'],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI text-embedding-3-large (3072d)</SelectItem>
+                    <SelectItem value="voyage">Voyage voyage-3-large (1024d)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Both spaces are stored side by side, so you can switch back and forth and compare answers
+                  on the same question. Voyage passages are only written during indexing — run a full
+                  re-index once before switching, or retrieval silently falls back to OpenAI.
                 </p>
               </div>
 
