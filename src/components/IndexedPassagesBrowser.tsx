@@ -23,6 +23,17 @@ interface Chunk {
   chunk_index: number;
   content: string;
   char_count: number | null;
+  embedding_model: string | null;
+  embedding_voyage_model: string | null;
+}
+
+interface Coverage {
+  source_id: string;
+  total_chunks: number;
+  openai_chunks: number;
+  voyage_chunks: number;
+  openai_model: string | null;
+  voyage_model: string | null;
 }
 
 const FRIENDLY_TYPE: Record<string, string> = {
@@ -56,6 +67,7 @@ const IndexedPassagesBrowser = () => {
   const [chunks, setChunks] = useState<Record<string, Chunk[]>>({});
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [filter, setFilter] = useState("");
+  const [coverage, setCoverage] = useState<Record<string, Coverage>>({});
 
   const loadDocs = useCallback(async () => {
     setLoading(true);
@@ -71,6 +83,10 @@ const IndexedPassagesBrowser = () => {
       .eq("source_type", "google_drive")
       .order("last_synced", { ascending: false });
     setDocs((data ?? []) as IndexedDoc[]);
+    const { data: cov } = await (supabase as any).rpc("embedding_coverage_by_document");
+    const map: Record<string, Coverage> = {};
+    for (const row of (cov ?? []) as Coverage[]) map[row.source_id] = row;
+    setCoverage(map);
     setLoading(false);
   }, []);
 
@@ -83,7 +99,7 @@ const IndexedPassagesBrowser = () => {
     setLoadingChunks(true);
     const { data } = await supabase
       .from("document_chunks")
-      .select("id, chunk_index, content, char_count")
+      .select("id, chunk_index, content, char_count, embedding_model, embedding_voyage_model")
       .eq("source_id", sourceId)
       .order("chunk_index", { ascending: true });
     setChunks((prev) => ({ ...prev, [sourceId]: (data ?? []) as Chunk[] }));
@@ -128,6 +144,8 @@ const IndexedPassagesBrowser = () => {
             <CardDescription>
               Every document the index knows about, and the exact passages stored for it. Files that were
               skipped or failed show the reason, so you can tell why a document never appears in answers.
+              Each document is also tagged with the embedding space(s) its passages live in — OpenAI,
+              Voyage, or both.
             </CardDescription>
           </div>
           <Button variant="ghost" size="icon" onClick={loadDocs} aria-label="Refresh">
@@ -160,6 +178,11 @@ const IndexedPassagesBrowser = () => {
               const status = doc.ingest_status ?? "unknown";
               const mime = doc.metadata?.mimeType as string | undefined;
               const docChunks = chunks[doc.source_id];
+              const cov = coverage[doc.source_id];
+              const hasOpenai = (cov?.openai_chunks ?? 0) > 0;
+              const hasVoyage = (cov?.voyage_chunks ?? 0) > 0;
+              const partialOpenai = hasOpenai && cov && cov.openai_chunks < cov.total_chunks;
+              const partialVoyage = hasVoyage && cov && cov.voyage_chunks < cov.total_chunks;
               return (
                 <AccordionItem key={doc.source_id} value={doc.source_id}>
                   <AccordionTrigger className="text-left">
@@ -169,6 +192,19 @@ const IndexedPassagesBrowser = () => {
                       <Badge variant={status === "indexed" ? "default" : "outline"}>
                         {STATUS_LABEL[status] ?? status}
                       </Badge>
+                      {hasOpenai && (
+                        <Badge variant="outline" className="border-primary/50 text-primary">
+                          OpenAI{partialOpenai ? ` ${cov!.openai_chunks}/${cov!.total_chunks}` : ""}
+                        </Badge>
+                      )}
+                      {hasVoyage && (
+                        <Badge variant="outline" className="border-accent-foreground/40">
+                          Voyage{partialVoyage ? ` ${cov!.voyage_chunks}/${cov!.total_chunks}` : ""}
+                        </Badge>
+                      )}
+                      {cov && !hasOpenai && !hasVoyage && (
+                        <Badge variant="outline" className="text-muted-foreground">No embeddings</Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {doc.chunk_count ?? 0} passages
                         {doc.last_synced ? ` · ${new Date(doc.last_synced).toLocaleString()}` : ""}
@@ -178,6 +214,14 @@ const IndexedPassagesBrowser = () => {
                   <AccordionContent>
                     {doc.ingest_error && (
                       <p className="mb-3 text-sm text-destructive">{doc.ingest_error}</p>
+                    )}
+                    {cov && (
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Embedded in{" "}
+                        {hasOpenai && hasVoyage ? "both spaces" : hasOpenai ? "OpenAI only" : hasVoyage ? "Voyage only" : "no space"}
+                        {cov.openai_model ? ` · OpenAI model: ${cov.openai_model} (${cov.openai_chunks}/${cov.total_chunks} passages)` : ""}
+                        {cov.voyage_model ? ` · Voyage model: ${cov.voyage_model} (${cov.voyage_chunks}/${cov.total_chunks} passages)` : ""}
+                      </p>
                     )}
                     {doc.full_url && (
                       <a
@@ -202,6 +246,12 @@ const IndexedPassagesBrowser = () => {
                               <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
                                 <Badge variant="outline">Passage {chunk.chunk_index + 1}</Badge>
                                 <span>{chunk.char_count ?? chunk.content.length} characters</span>
+                                {chunk.embedding_model && (
+                                  <Badge variant="secondary">OpenAI: {chunk.embedding_model}</Badge>
+                                )}
+                                {chunk.embedding_voyage_model && (
+                                  <Badge variant="secondary">Voyage: {chunk.embedding_voyage_model}</Badge>
+                                )}
                               </div>
                               <p className="whitespace-pre-wrap text-sm leading-relaxed">
                                 {highlight(chunk.content)}
