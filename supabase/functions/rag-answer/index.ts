@@ -6,6 +6,7 @@ import { AIConfigManager } from '../_shared/ai/config-manager.ts';
 import { embedQuery, EmbeddingError, EMBEDDING_MODEL } from '../_shared/rag/embeddings.ts';
 import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
 import { rerank, RerankError } from '../_shared/rag/reranker.ts';
+import { planQuery } from '../_shared/rag/query-planner.ts';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -137,37 +138,21 @@ serve(async (req) => {
     const startTime = Date.now();
     const configManager = new AIConfigManager(supabase, user.id);
 
-    // Follow-up questions ("what about the pricing for that one?") don't embed
-    // well on their own — the referent lives in prior turns, not the question
-    // text. When there's history, ask a cheap/fast model to fold it into one
-    // standalone question before embedding. The conversation is still passed
-    // to the answer model separately below, so this step only affects retrieval.
-    let retrievalQuery = question;
-    if (history && history.length > 0) {
-      try {
-        const condenseConfig = await configManager.getProviderConfig('search');
-        const condenseProvider = AIProviderFactory.create(condenseConfig);
-        const transcript = history.map((h) => `${h.role}: ${h.content}`).join('\n');
-        const condensed = await condenseProvider.chat({
-          messages: [{
-            role: 'user',
-            content: `Conversation so far:\n${transcript}\n\nFollow-up question: ${question}\n\nRewrite the follow-up as a single standalone question that makes sense with no prior context. Preserve its intent exactly. Reply with only the rewritten question, nothing else.`,
-          }],
-          temperature: 0,
-          maxTokens: 200,
-        });
-        if (condensed.content?.trim()) retrievalQuery = condensed.content.trim();
-      } catch (err) {
-        console.error('Query condensation failed, falling back to raw question:', err);
-      }
-    }
+    // Plan the retrieval queries. One model call resolves conversational
+    // references into a standalone question (for the embedding) AND produces
+    // short keyword queries (for full-text search) — see query-planner.ts for
+    // why the two channels need different query shapes. Degrades to the raw
+    // question on any failure.
+    const planProvider = AIProviderFactory.create(await configManager.getProviderConfig('search'));
+    const plan = await planQuery(planProvider, question, history ?? []);
+    const retrievalQuery = plan.standaloneQuestion;
 
     const weights = weightsFor(settings.retrievalMode);
     const queryEmbedding = weights.vector > 0 ? await embedQuery(retrievalQuery) : new Array(3072).fill(0);
 
-    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid', {
+    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid_multi', {
       query_embedding: JSON.stringify(queryEmbedding),
-      query_text: retrievalQuery,
+      query_texts: plan.keywordQueries,
       match_count: settings.retrievalTopK,
       p_source_type: 'google_drive',
       p_min_similarity: settings.minSimilarity,
@@ -345,6 +330,7 @@ ${context}
               })),
               reranked,
               retrievalQuery: retrievalQuery !== question ? retrievalQuery : null,
+              keywordQueries: plan.planned ? plan.keywordQueries : null,
             }
           : null,
       }),
