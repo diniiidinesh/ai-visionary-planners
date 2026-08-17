@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import DriveIndexPanel from "@/components/DriveIndexPanel";
+import IndexedPassagesBrowser from "@/components/IndexedPassagesBrowser";
 
 const Connect = () => {
   const navigate = useNavigate();
@@ -195,8 +196,9 @@ const Connect = () => {
           ))}
         </div>
 
-        <div className="mb-8">
+        <div className="mb-8 space-y-6">
           <DriveIndexPanel connected={connections['google_drive'] || false} />
+          <IndexedPassagesBrowser />
         </div>
 
         <div className="text-center">
