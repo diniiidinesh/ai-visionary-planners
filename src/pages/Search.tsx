@@ -138,6 +138,8 @@ const Search = () => {
     setSearchResults([]);
     setAiSummary("");
     setRagExcerpts([]);
+    setRagDebug(null);
+    setStaleDocuments(0);
     setSearchStage('processing');
     setProcessingLogs([]);
     setShowDetails(true);
@@ -176,6 +178,8 @@ const Search = () => {
         setQueryId(ragQueryRow?.id ?? null);
         setAiSummary(ragData.summary);
         setRagExcerpts(ragData.excerpts || []);
+        setRagDebug(ragData.retrieval ?? null);
+        setStaleDocuments(ragData.staleDocuments ?? 0);
         setSearchResults((ragData.sources || []).map((s: any) => ({
           id: s.id,
           name: s.name,
