@@ -345,6 +345,7 @@ export type Database = {
       }
       user_ai_preferences: {
         Row: {
+          auto_sync_daily: boolean
           created_at: string | null
           debug_retrieval: boolean
           enable_cost_tracking: boolean | null
@@ -367,6 +368,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          auto_sync_daily?: boolean
           created_at?: string | null
           debug_retrieval?: boolean
           enable_cost_tracking?: boolean | null
@@ -389,6 +391,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          auto_sync_daily?: boolean
           created_at?: string | null
           debug_retrieval?: boolean
           enable_cost_tracking?: boolean | null
