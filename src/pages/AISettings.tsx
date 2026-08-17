@@ -567,19 +567,6 @@ export default function AISettings() {
             </CardContent>
           </Card>
 
-          <Card className="hidden">
-            <CardHeader>
-              <CardTitle>Legacy</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <span className="sr-only">legacy</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           <div className="flex justify-end">
             <Button onClick={savePreferences} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
