@@ -44,6 +44,36 @@ const TUNING_DEFAULTS = {
   debugRetrieval: false,
 };
 
+interface TuningSliderProps {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  onChange: (value: number) => void;
+}
+
+const TuningSlider = ({ id, label, hint, value, min, max, step, format, onChange }: TuningSliderProps) => (
+  <div className="space-y-2">
+    <div className="flex items-center justify-between">
+      <Label htmlFor={id}>{label}</Label>
+      <span className="font-mono text-sm text-muted-foreground">{format(value)}</span>
+    </div>
+    <Slider
+      id={id}
+      value={[value]}
+      min={min}
+      max={max}
+      step={step}
+      onValueChange={([next]) => onChange(next)}
+    />
+    <p className="text-xs text-muted-foreground">{hint}</p>
+  </div>
+);
+
 type ProviderStatus = Record<string, { project: boolean; personal: boolean; configured: boolean }>;
 
 const PROVIDERS = [
