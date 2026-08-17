@@ -137,6 +137,28 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
     }
   };
 
+  // Daily auto-sync: runs at most once per day when the page is opened.
+  useEffect(() => {
+    if (!autoSync || !connected || indexing) return;
+    const due =
+      !stats.lastSynced || Date.now() - new Date(stats.lastSynced).getTime() > AUTO_SYNC_INTERVAL_MS;
+    if (due) runIndex(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSync, connected, stats.lastSynced]);
+
+  const toggleAutoSync = async (enabled: boolean) => {
+    setAutoSync(enabled);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from("user_ai_preferences")
+      .upsert({ user_id: user.id, auto_sync_daily: enabled }, { onConflict: "user_id" });
+    if (error) {
+      setAutoSync(!enabled);
+      toast({ title: "Could not save setting", description: error.message, variant: "destructive" });
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
