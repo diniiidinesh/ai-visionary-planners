@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ChunkInspector } from "@/components/pipeline/ChunkInspector";
 import { EmbeddingLab } from "@/components/pipeline/EmbeddingLab";
+import { LiveRun } from "@/components/pipeline/LiveRun";
 import { ArrowLeft } from "lucide-react";
 
 interface Stats {
@@ -122,6 +123,8 @@ ANSWERING (runs on every question)
             </pre>
           </CardContent>
         </Card>
+
+        <LiveRun />
 
         <h2 className="pt-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Indexing — done once per file version
