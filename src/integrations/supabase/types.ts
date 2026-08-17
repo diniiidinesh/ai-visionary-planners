@@ -58,15 +58,24 @@ export type Database = {
       }
       document_chunks: {
         Row: {
+          author: string | null
           char_count: number | null
           chunk_index: number
+          chunk_overlap: number | null
+          chunk_size: number | null
           content: string
           content_hash: string | null
+          content_tsv: unknown
           created_at: string
+          doc_created_time: string | null
+          doc_modified_time: string | null
           embedding: string
           embedding_model: string
+          folder_path: string | null
           full_url: string | null
+          heading: string | null
           id: string
+          metadata_version: number
           mime_type: string | null
           source_id: string
           source_type: string
@@ -75,15 +84,24 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          author?: string | null
           char_count?: number | null
           chunk_index: number
+          chunk_overlap?: number | null
+          chunk_size?: number | null
           content: string
           content_hash?: string | null
+          content_tsv?: unknown
           created_at?: string
+          doc_created_time?: string | null
+          doc_modified_time?: string | null
           embedding: string
           embedding_model: string
+          folder_path?: string | null
           full_url?: string | null
+          heading?: string | null
           id?: string
+          metadata_version?: number
           mime_type?: string | null
           source_id: string
           source_type?: string
@@ -92,15 +110,24 @@ export type Database = {
           user_id: string
         }
         Update: {
+          author?: string | null
           char_count?: number | null
           chunk_index?: number
+          chunk_overlap?: number | null
+          chunk_size?: number | null
           content?: string
           content_hash?: string | null
+          content_tsv?: unknown
           created_at?: string
+          doc_created_time?: string | null
+          doc_modified_time?: string | null
           embedding?: string
           embedding_model?: string
+          folder_path?: string | null
           full_url?: string | null
+          heading?: string | null
           id?: string
+          metadata_version?: number
           mime_type?: string | null
           source_id?: string
           source_type?: string
@@ -112,16 +139,23 @@ export type Database = {
       }
       document_index: {
         Row: {
+          author: string | null
           chunk_count: number
+          chunk_overlap: number | null
+          chunk_size: number | null
           content_hash: string | null
           content_snippet: string | null
           created_at: string | null
+          doc_created_time: string | null
+          embedding_model: string | null
+          folder_path: string | null
           full_url: string | null
           id: string
           ingest_error: string | null
           ingest_status: string
           last_synced: string | null
           metadata: Json | null
+          metadata_version: number
           source_id: string
           source_modified_time: string | null
           source_type: string
@@ -130,16 +164,23 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          author?: string | null
           chunk_count?: number
+          chunk_overlap?: number | null
+          chunk_size?: number | null
           content_hash?: string | null
           content_snippet?: string | null
           created_at?: string | null
+          doc_created_time?: string | null
+          embedding_model?: string | null
+          folder_path?: string | null
           full_url?: string | null
           id?: string
           ingest_error?: string | null
           ingest_status?: string
           last_synced?: string | null
           metadata?: Json | null
+          metadata_version?: number
           source_id: string
           source_modified_time?: string | null
           source_type: string
@@ -148,16 +189,23 @@ export type Database = {
           user_id: string
         }
         Update: {
+          author?: string | null
           chunk_count?: number
+          chunk_overlap?: number | null
+          chunk_size?: number | null
           content_hash?: string | null
           content_snippet?: string | null
           created_at?: string | null
+          doc_created_time?: string | null
+          embedding_model?: string | null
+          folder_path?: string | null
           full_url?: string | null
           id?: string
           ingest_error?: string | null
           ingest_status?: string
           last_synced?: string | null
           metadata?: Json | null
+          metadata_version?: number
           source_id?: string
           source_modified_time?: string | null
           source_type?: string
@@ -298,43 +346,67 @@ export type Database = {
       user_ai_preferences: {
         Row: {
           created_at: string | null
+          debug_retrieval: boolean
           enable_cost_tracking: boolean | null
           id: string
+          max_output_tokens: number
+          max_passages_per_doc: number
+          min_similarity: number
           monthly_budget_usd: number | null
+          passages_to_model: number
+          retrieval_mode: string
+          retrieval_top_k: number
           search_model: string | null
           search_org_id: string | null
           search_provider: string | null
           summarize_model: string | null
           summarize_org_id: string | null
           summarize_provider: string | null
+          temperature: number
           updated_at: string | null
           user_id: string
         }
         Insert: {
           created_at?: string | null
+          debug_retrieval?: boolean
           enable_cost_tracking?: boolean | null
           id?: string
+          max_output_tokens?: number
+          max_passages_per_doc?: number
+          min_similarity?: number
           monthly_budget_usd?: number | null
+          passages_to_model?: number
+          retrieval_mode?: string
+          retrieval_top_k?: number
           search_model?: string | null
           search_org_id?: string | null
           search_provider?: string | null
           summarize_model?: string | null
           summarize_org_id?: string | null
           summarize_provider?: string | null
+          temperature?: number
           updated_at?: string | null
           user_id: string
         }
         Update: {
           created_at?: string | null
+          debug_retrieval?: boolean
           enable_cost_tracking?: boolean | null
           id?: string
+          max_output_tokens?: number
+          max_passages_per_doc?: number
+          min_similarity?: number
           monthly_budget_usd?: number | null
+          passages_to_model?: number
+          retrieval_mode?: string
+          retrieval_top_k?: number
           search_model?: string | null
           search_org_id?: string | null
           search_provider?: string | null
           summarize_model?: string | null
           summarize_org_id?: string | null
           summarize_provider?: string | null
+          temperature?: number
           updated_at?: string | null
           user_id?: string
         }
@@ -397,6 +469,35 @@ export type Database = {
           source_id: string
           source_type: string
           title: string
+        }[]
+      }
+      match_document_chunks_hybrid: {
+        Args: {
+          match_count?: number
+          p_keyword_weight?: number
+          p_min_similarity?: number
+          p_source_type?: string
+          p_vector_weight?: number
+          query_embedding: string
+          query_text: string
+        }
+        Returns: {
+          author: string
+          chunk_index: number
+          content: string
+          doc_modified_time: string
+          full_url: string
+          fused_score: number
+          heading: string
+          id: string
+          keyword_rank: number
+          keyword_score: number
+          mime_type: string
+          similarity: number
+          source_id: string
+          source_type: string
+          title: string
+          vector_rank: number
         }[]
       }
       store_encrypted_oauth_tokens: {
