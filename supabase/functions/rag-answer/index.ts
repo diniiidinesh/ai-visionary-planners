@@ -3,7 +3,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
-import { embedQuery, EmbeddingError } from '../_shared/rag/embeddings.ts';
+import { embedQuery, EmbeddingError, EMBEDDING_MODEL } from '../_shared/rag/embeddings.ts';
+import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -15,7 +16,36 @@ const RagAnswerSchema = z.object({
   question: z.string().min(1, 'Question is required').max(1000, 'Question too long'),
   queryId: z.string().optional(),
   matchCount: z.number().int().min(1).max(40).optional(),
+  // Per-request overrides (the tuning console can preview without saving).
+  overrides: z.object({
+    temperature: z.number().min(0).max(1).optional(),
+    maxOutputTokens: z.number().int().min(256).max(8000).optional(),
+    retrievalTopK: z.number().int().min(5).max(40).optional(),
+    passagesToModel: z.number().int().min(1).max(15).optional(),
+    minSimilarity: z.number().min(0).max(0.9).optional(),
+    maxPassagesPerDoc: z.number().int().min(1).max(5).optional(),
+    retrievalMode: z.enum(['vector', 'hybrid', 'keyword']).optional(),
+    debugRetrieval: z.boolean().optional(),
+  }).optional(),
 });
+
+const DEFAULTS = {
+  temperature: 0.3,
+  maxOutputTokens: 2000,
+  retrievalTopK: 20,
+  passagesToModel: 10,
+  minSimilarity: 0.15,
+  maxPassagesPerDoc: 3,
+  retrievalMode: 'hybrid' as const,
+  debugRetrieval: false,
+};
+
+/** RRF weights per retrieval mode. */
+function weightsFor(mode: string): { vector: number; keyword: number } {
+  if (mode === 'vector') return { vector: 1, keyword: 0 };
+  if (mode === 'keyword') return { vector: 0, keyword: 1 };
+  return { vector: 1, keyword: 1 };
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -31,7 +61,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    const { question, queryId, matchCount } = validation.data;
+    const { question, queryId, matchCount, overrides } = validation.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -66,18 +96,50 @@ serve(async (req) => {
       );
     }
 
-    const startTime = Date.now();
-    const queryEmbedding = await embedQuery(question);
+    // Load tuning preferences, then apply any per-request override.
+    const { data: prefs } = await supabase
+      .from('user_ai_preferences')
+      .select('temperature, max_output_tokens, retrieval_top_k, passages_to_model, min_similarity, max_passages_per_doc, retrieval_mode, debug_retrieval')
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks', {
+    const settings = {
+      temperature: overrides?.temperature ?? Number(prefs?.temperature ?? DEFAULTS.temperature),
+      maxOutputTokens: overrides?.maxOutputTokens ?? (prefs?.max_output_tokens ?? DEFAULTS.maxOutputTokens),
+      retrievalTopK: overrides?.retrievalTopK ?? matchCount ?? (prefs?.retrieval_top_k ?? DEFAULTS.retrievalTopK),
+      passagesToModel: overrides?.passagesToModel ?? (prefs?.passages_to_model ?? DEFAULTS.passagesToModel),
+      minSimilarity: overrides?.minSimilarity ?? Number(prefs?.min_similarity ?? DEFAULTS.minSimilarity),
+      maxPassagesPerDoc: overrides?.maxPassagesPerDoc ?? (prefs?.max_passages_per_doc ?? DEFAULTS.maxPassagesPerDoc),
+      retrievalMode: overrides?.retrievalMode ?? (prefs?.retrieval_mode ?? DEFAULTS.retrievalMode),
+      debugRetrieval: overrides?.debugRetrieval ?? (prefs?.debug_retrieval ?? DEFAULTS.debugRetrieval),
+    };
+
+    // Documents indexed with a different embedding model or chunk settings.
+    const { count: staleDocuments } = await supabase
+      .from('document_index')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('ingest_status', 'indexed')
+      .or(
+        `embedding_model.neq.${EMBEDDING_MODEL},chunk_size.neq.${CHUNK_SIZE},chunk_overlap.neq.${CHUNK_OVERLAP},metadata_version.neq.${METADATA_VERSION},embedding_model.is.null`
+      );
+
+    const startTime = Date.now();
+    const weights = weightsFor(settings.retrievalMode);
+    const queryEmbedding = weights.vector > 0 ? await embedQuery(question) : new Array(3072).fill(0);
+
+    const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid', {
       query_embedding: JSON.stringify(queryEmbedding),
-      match_count: matchCount ?? 20,
+      query_text: question,
+      match_count: settings.retrievalTopK,
       p_source_type: 'google_drive',
-      p_min_similarity: 0.15,
+      p_min_similarity: settings.minSimilarity,
+      p_vector_weight: weights.vector,
+      p_keyword_weight: weights.keyword,
     });
 
     if (matchError) {
-      console.error('Vector search failed:', matchError);
+      console.error('Hybrid search failed:', matchError);
       throw new Error(matchError.message);
     }
 
@@ -88,19 +150,23 @@ serve(async (req) => {
           summary: '❌ The indexed documents do not contain information about this.',
           sources: [],
           chunksUsed: 0,
+          settings,
+          staleDocuments: staleDocuments ?? 0,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Keep at most 3 chunks per document so one file can't crowd out the rest.
+    // Cap passages per document so one file can't crowd out the rest.
     const perDoc = new Map<string, number>();
     const selected = chunks.filter((c) => {
       const used = perDoc.get(c.source_id) ?? 0;
-      if (used >= 3) return false;
+      if (used >= settings.maxPassagesPerDoc) return false;
       perDoc.set(c.source_id, used + 1);
       return true;
-    }).slice(0, 10);
+    }).slice(0, settings.passagesToModel);
+
+    const selectedIds = new Set(selected.map((c) => c.id));
 
     const sources = Array.from(
       new Map(selected.map((c) => [c.source_id, {
@@ -108,13 +174,23 @@ serve(async (req) => {
         name: c.title,
         url: c.full_url,
         mimeType: c.mime_type,
+        author: c.author ?? null,
+        modifiedTime: c.doc_modified_time ?? null,
         topSimilarity: c.similarity,
       }])).values()
     );
 
-    const context = selected.map((c, i) =>
-      `[${i + 1}] Document: "${c.title}"\nURL: ${c.full_url}\nRelevance: ${(c.similarity * 100).toFixed(1)}%\n---\n${c.content}\n---`
-    ).join('\n\n');
+    const context = selected.map((c, i) => {
+      const header = [
+        `Document: "${c.title}"`,
+        c.heading ? `Section: ${c.heading}` : null,
+        c.author ? `Author: ${c.author}` : null,
+        c.doc_modified_time ? `Last modified: ${new Date(c.doc_modified_time).toISOString().slice(0, 10)}` : null,
+        `URL: ${c.full_url}`,
+        `Relevance: ${(Number(c.similarity ?? 0) * 100).toFixed(1)}%`,
+      ].filter(Boolean).join('\n');
+      return `[${i + 1}] ${header}\n---\n${c.content}\n---`;
+    }).join('\n\n');
 
     const configManager = new AIConfigManager(supabase, user.id);
     const providerConfig = await configManager.getProviderConfig('summarize');
@@ -130,7 +206,7 @@ ${context}
 **Instructions**:
 1. Use ONLY the excerpts above. Never rely on outside knowledge.
 2. Cite every claim inline with the bracket number of the excerpt, e.g. "revenue rose 15% [2]".
-3. Be specific: include figures, dates, names and short quotes when present.
+3. Be specific: include figures, dates, names and short quotes when present. Markdown tables in the excerpts preserve rows and columns — read them as tables.
 4. If excerpts disagree, present both views with their citations.
 5. If the excerpts do not answer the question, say: "❌ The indexed documents do not contain information about this."
 6. Aim for 150-300 words, using **bold** for key findings and bullets for lists.
@@ -138,8 +214,8 @@ ${context}
 
     const aiResponse = await aiProvider.chat({
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      maxTokens: 2000,
+      temperature: settings.temperature,
+      maxTokens: settings.maxOutputTokens,
     });
 
     const responseTime = Date.now() - startTime;
@@ -175,12 +251,34 @@ ${context}
         excerpts: selected.map((c, i) => ({
           ref: i + 1,
           title: c.title,
+          heading: c.heading ?? null,
+          author: c.author ?? null,
+          modifiedTime: c.doc_modified_time ?? null,
           url: c.full_url,
           similarity: c.similarity,
           content: c.content,
         })),
         chunksUsed: selected.length,
         model: `${aiResponse.provider}/${aiResponse.model}`,
+        settings,
+        staleDocuments: staleDocuments ?? 0,
+        retrieval: settings.debugRetrieval
+          ? {
+              mode: settings.retrievalMode,
+              candidates: chunks.map((c) => ({
+                title: c.title,
+                heading: c.heading ?? null,
+                chunkIndex: c.chunk_index,
+                similarity: c.similarity,
+                keywordScore: c.keyword_score,
+                vectorRank: c.vector_rank,
+                keywordRank: c.keyword_rank,
+                fusedScore: c.fused_score,
+                used: selectedIds.has(c.id),
+                preview: String(c.content ?? '').slice(0, 240),
+              })),
+            }
+          : null,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

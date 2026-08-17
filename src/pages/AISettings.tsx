@@ -10,8 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info } from "lucide-react";
+import { ArrowLeft, Save, Info, RotateCcw } from "lucide-react";
 
 interface AIPreferences {
   searchProvider: string;
@@ -22,7 +23,56 @@ interface AIPreferences {
   summarizeOrgId?: string;
   enableCostTracking: boolean;
   monthlyBudgetUsd?: number;
+  temperature: number;
+  maxOutputTokens: number;
+  retrievalTopK: number;
+  passagesToModel: number;
+  minSimilarity: number;
+  maxPassagesPerDoc: number;
+  retrievalMode: 'vector' | 'hybrid' | 'keyword';
+  debugRetrieval: boolean;
 }
+
+const TUNING_DEFAULTS = {
+  temperature: 0.3,
+  maxOutputTokens: 2000,
+  retrievalTopK: 20,
+  passagesToModel: 10,
+  minSimilarity: 0.15,
+  maxPassagesPerDoc: 3,
+  retrievalMode: 'hybrid' as const,
+  debugRetrieval: false,
+};
+
+interface TuningSliderProps {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  onChange: (value: number) => void;
+}
+
+const TuningSlider = ({ id, label, hint, value, min, max, step, format, onChange }: TuningSliderProps) => (
+  <div className="space-y-2">
+    <div className="flex items-center justify-between">
+      <Label htmlFor={id}>{label}</Label>
+      <span className="font-mono text-sm text-muted-foreground">{format(value)}</span>
+    </div>
+    <Slider
+      id={id}
+      value={[value]}
+      min={min}
+      max={max}
+      step={step}
+      onValueChange={([next]) => onChange(next)}
+    />
+    <p className="text-xs text-muted-foreground">{hint}</p>
+  </div>
+);
 
 type ProviderStatus = Record<string, { project: boolean; personal: boolean; configured: boolean }>;
 
@@ -55,6 +105,7 @@ export default function AISettings() {
     summarizeProvider: 'lovable',
     summarizeModel: 'google/gemini-2.5-flash',
     enableCostTracking: false,
+    ...TUNING_DEFAULTS,
   });
 
   useEffect(() => {
@@ -123,6 +174,14 @@ export default function AISettings() {
           summarizeOrgId: data.summarize_org_id || '',
           enableCostTracking: data.enable_cost_tracking || false,
           monthlyBudgetUsd: data.monthly_budget_usd || undefined,
+          temperature: Number(data.temperature ?? TUNING_DEFAULTS.temperature),
+          maxOutputTokens: data.max_output_tokens ?? TUNING_DEFAULTS.maxOutputTokens,
+          retrievalTopK: data.retrieval_top_k ?? TUNING_DEFAULTS.retrievalTopK,
+          passagesToModel: data.passages_to_model ?? TUNING_DEFAULTS.passagesToModel,
+          minSimilarity: Number(data.min_similarity ?? TUNING_DEFAULTS.minSimilarity),
+          maxPassagesPerDoc: data.max_passages_per_doc ?? TUNING_DEFAULTS.maxPassagesPerDoc,
+          retrievalMode: (data.retrieval_mode as AIPreferences['retrievalMode']) || TUNING_DEFAULTS.retrievalMode,
+          debugRetrieval: data.debug_retrieval ?? TUNING_DEFAULTS.debugRetrieval,
         });
       }
     } catch (error: any) {
@@ -146,6 +205,14 @@ export default function AISettings() {
           summarizeOrgId: preferences.summarizeOrgId || null,
           enableCostTracking: preferences.enableCostTracking,
           monthlyBudgetUsd: preferences.monthlyBudgetUsd || null,
+          temperature: preferences.temperature,
+          maxOutputTokens: preferences.maxOutputTokens,
+          retrievalTopK: preferences.retrievalTopK,
+          passagesToModel: preferences.passagesToModel,
+          minSimilarity: preferences.minSimilarity,
+          maxPassagesPerDoc: preferences.maxPassagesPerDoc,
+          retrievalMode: preferences.retrievalMode,
+          debugRetrieval: preferences.debugRetrieval,
         },
       });
 
@@ -391,6 +458,142 @@ export default function AISettings() {
                   />
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle>Retrieval &amp; Generation</CardTitle>
+                  <CardDescription>
+                    Tune how passages are found and how the answer is written. Changes apply to the next
+                    question you ask — no re-indexing needed.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreferences({ ...preferences, ...TUNING_DEFAULTS })}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reset
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>Retrieval mode</Label>
+                <Select
+                  value={preferences.retrievalMode}
+                  onValueChange={(value) =>
+                    setPreferences({ ...preferences, retrievalMode: value as AIPreferences['retrievalMode'] })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hybrid">Hybrid (meaning + keywords)</SelectItem>
+                    <SelectItem value="vector">Meaning only (vector)</SelectItem>
+                    <SelectItem value="keyword">Keywords only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Hybrid finds paraphrases and exact terms (IDs, error codes, product names) and merges
+                  both ranked lists. Keyword-only skips the embedding call entirely.
+                </p>
+              </div>
+
+              <TuningSlider
+                id="temperature"
+                label="Temperature"
+                hint="0 keeps answers literal and repeatable; higher values allow looser phrasing."
+                value={preferences.temperature}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => setPreferences({ ...preferences, temperature: v })}
+              />
+
+              <TuningSlider
+                id="max-output-tokens"
+                label="Max answer length (tokens)"
+                hint="Upper bound on the generated answer. Roughly 1 token ≈ 4 characters."
+                value={preferences.maxOutputTokens}
+                min={256}
+                max={8000}
+                step={128}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, maxOutputTokens: v })}
+              />
+
+              <TuningSlider
+                id="retrieval-top-k"
+                label="Candidates retrieved"
+                hint="How many passages the search stage considers before filtering. Higher = better recall, slower."
+                value={preferences.retrievalTopK}
+                min={5}
+                max={40}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, retrievalTopK: v })}
+              />
+
+              <TuningSlider
+                id="passages-to-model"
+                label="Passages sent to the model"
+                hint="More context can help, but too much dilutes the answer and costs more."
+                value={preferences.passagesToModel}
+                min={1}
+                max={15}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, passagesToModel: v })}
+              />
+
+              <TuningSlider
+                id="min-similarity"
+                label="Minimum relevance"
+                hint="Passages below this similarity are discarded. Raise it if answers cite irrelevant text."
+                value={preferences.minSimilarity}
+                min={0}
+                max={0.5}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => setPreferences({ ...preferences, minSimilarity: v })}
+              />
+
+              <TuningSlider
+                id="max-per-doc"
+                label="Max passages per document"
+                hint="Stops one long document from crowding out every other source."
+                value={preferences.maxPassagesPerDoc}
+                min={1}
+                max={5}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, maxPassagesPerDoc: v })}
+              />
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="debug-retrieval">Show retrieval debug</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Lists every candidate passage with its scores and whether it made the cut.
+                  </p>
+                </div>
+                <Switch
+                  id="debug-retrieval"
+                  checked={preferences.debugRetrieval}
+                  onCheckedChange={(checked) =>
+                    setPreferences({ ...preferences, debugRetrieval: checked })
+                  }
+                />
+              </div>
             </CardContent>
           </Card>
 

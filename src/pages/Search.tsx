@@ -46,11 +46,28 @@ const Search = () => {
   interface RagExcerpt {
     ref: number;
     title: string;
+    heading?: string | null;
+    author?: string | null;
+    modifiedTime?: string | null;
     url?: string;
     similarity: number;
     content: string;
   }
   const [ragExcerpts, setRagExcerpts] = useState<RagExcerpt[]>([]);
+  interface RagCandidate {
+    title: string;
+    heading?: string | null;
+    chunkIndex: number;
+    similarity: number | null;
+    keywordScore: number | null;
+    vectorRank: number | null;
+    keywordRank: number | null;
+    fusedScore: number | null;
+    used: boolean;
+    preview: string;
+  }
+  const [ragDebug, setRagDebug] = useState<{ mode: string; candidates: RagCandidate[] } | null>(null);
+  const [staleDocuments, setStaleDocuments] = useState(0);
   interface ProcessingLog {
     message: string;
     timestamp: string;
@@ -121,6 +138,8 @@ const Search = () => {
     setSearchResults([]);
     setAiSummary("");
     setRagExcerpts([]);
+    setRagDebug(null);
+    setStaleDocuments(0);
     setSearchStage('processing');
     setProcessingLogs([]);
     setShowDetails(true);
@@ -159,6 +178,8 @@ const Search = () => {
         setQueryId(ragQueryRow?.id ?? null);
         setAiSummary(ragData.summary);
         setRagExcerpts(ragData.excerpts || []);
+        setRagDebug(ragData.retrieval ?? null);
+        setStaleDocuments(ragData.staleDocuments ?? 0);
         setSearchResults((ragData.sources || []).map((s: any) => ({
           id: s.id,
           name: s.name,
@@ -696,9 +717,66 @@ const Search = () => {
                               {(excerpt.similarity * 100).toFixed(0)}% match
                             </span>
                           </div>
+                          {(excerpt.heading || excerpt.author || excerpt.modifiedTime) && (
+                            <p className="mb-1 text-[11px] text-muted-foreground">
+                              {[
+                                excerpt.heading,
+                                excerpt.author,
+                                excerpt.modifiedTime
+                                  ? new Date(excerpt.modifiedTime).toLocaleDateString()
+                                  : null,
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
                           <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
                             {excerpt.content}
                           </p>
+                        </div>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+                {staleDocuments > 0 && (
+                  <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                    <span className="font-medium">{staleDocuments} document(s) need re-indexing.</span>{" "}
+                    They were indexed with older chunk or embedding settings, so their passages may be
+                    ranked incorrectly. Run a full re-index from the Connect page.
+                  </div>
+                )}
+                {ragDebug && (
+                  <Collapsible className="mt-4">
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                      <ChevronDown className="h-4 w-4" />
+                      <span className="font-medium">
+                        Retrieval debug · {ragDebug.mode} · {ragDebug.candidates.length} candidates
+                      </span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3 space-y-2">
+                      {ragDebug.candidates.map((candidate, i) => (
+                        <div
+                          key={`${candidate.title}-${candidate.chunkIndex}-${i}`}
+                          className={`rounded-md border p-2 text-xs ${candidate.used ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="font-medium truncate max-w-[16rem]">{candidate.title}</span>
+                            <span className="text-muted-foreground">#{candidate.chunkIndex}</span>
+                            {candidate.heading && (
+                              <span className="text-muted-foreground truncate max-w-[12rem]">{candidate.heading}</span>
+                            )}
+                            <span className="text-muted-foreground">
+                              cosine {candidate.similarity != null ? (candidate.similarity * 100).toFixed(1) + "%" : "—"}
+                            </span>
+                            <span className="text-muted-foreground">
+                              vec rank {candidate.vectorRank ?? "—"} · kw rank {candidate.keywordRank ?? "—"}
+                            </span>
+                            <span className="text-muted-foreground">
+                              fused {candidate.fusedScore != null ? candidate.fusedScore.toFixed(4) : "—"}
+                            </span>
+                            <span className={candidate.used ? "text-primary font-medium" : "text-muted-foreground"}>
+                              {candidate.used ? "used" : "not used"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-muted-foreground line-clamp-2">{candidate.preview}</p>
                         </div>
                       ))}
                     </CollapsibleContent>
