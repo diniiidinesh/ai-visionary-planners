@@ -264,6 +264,11 @@ export default function AISettings() {
                   />
                 </div>
               )}
+
+              <ActiveProvider
+                provider={preferences.searchProvider}
+                model={preferences.searchModel}
+              />
             </CardContent>
           </Card>
 
@@ -334,6 +339,11 @@ export default function AISettings() {
                   />
                 </div>
               )}
+
+              <ActiveProvider
+                provider={preferences.summarizeProvider}
+                model={preferences.summarizeModel}
+              />
             </CardContent>
           </Card>
 
