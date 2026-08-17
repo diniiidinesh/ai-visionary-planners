@@ -20,8 +20,22 @@ serve(async (req) => {
       summarizeModel,
       summarizeOrgId,
       enableCostTracking,
-      monthlyBudgetUsd
+      monthlyBudgetUsd,
+      temperature,
+      maxOutputTokens,
+      retrievalTopK,
+      passagesToModel,
+      minSimilarity,
+      maxPassagesPerDoc,
+      retrievalMode,
+      debugRetrieval
     } = await req.json();
+
+    const clamp = (value: unknown, min: number, max: number, fallback: number) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.min(max, Math.max(min, n));
+    };
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -60,6 +74,14 @@ serve(async (req) => {
         summarize_org_id: summarizeOrgId,
         enable_cost_tracking: enableCostTracking,
         monthly_budget_usd: monthlyBudgetUsd,
+        temperature: clamp(temperature, 0, 1, 0.3),
+        max_output_tokens: Math.round(clamp(maxOutputTokens, 256, 8000, 2000)),
+        retrieval_top_k: Math.round(clamp(retrievalTopK, 5, 40, 20)),
+        passages_to_model: Math.round(clamp(passagesToModel, 1, 15, 10)),
+        min_similarity: clamp(minSimilarity, 0, 0.9, 0.15),
+        max_passages_per_doc: Math.round(clamp(maxPassagesPerDoc, 1, 5, 3)),
+        retrieval_mode: ['vector', 'hybrid', 'keyword'].includes(retrievalMode) ? retrievalMode : 'hybrid',
+        debug_retrieval: debugRetrieval === true,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id'
