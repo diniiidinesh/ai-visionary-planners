@@ -120,6 +120,7 @@ const Search = () => {
     setHasSearched(true);
     setSearchResults([]);
     setAiSummary("");
+    setRagExcerpts([]);
     setSearchStage('processing');
     setProcessingLogs([]);
     setShowDetails(true);
