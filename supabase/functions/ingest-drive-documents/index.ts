@@ -146,7 +146,9 @@ serve(async (req) => {
           continue;
         }
 
-        const contentResponse = await fetch(contentUrlFor(file.id, file.mimeType), {
+        const contentUrl = new URL(contentUrlFor(file.id, file.mimeType));
+        contentUrl.searchParams.set('supportsAllDrives', 'true');
+        const contentResponse = await fetch(contentUrl.toString(), {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
