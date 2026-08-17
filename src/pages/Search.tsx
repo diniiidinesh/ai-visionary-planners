@@ -730,13 +730,15 @@ const Search = () => {
                                 )}
                               </div>
                               <div className="space-y-2 text-sm text-muted-foreground">
-                                <p>Type: {result.mimeType}</p>
+                                {result.mimeType && <p>Type: {result.mimeType}</p>}
                                 {result.owners && result.owners[0] && (
                                   <p>Owner: {result.owners[0].displayName}</p>
                                 )}
-                                <p>
-                                  Last modified: {new Date(result.modifiedTime).toLocaleDateString()}
-                                </p>
+                                {result.modifiedTime && (
+                                  <p>
+                                    Last modified: {new Date(result.modifiedTime).toLocaleDateString()}
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <Button
