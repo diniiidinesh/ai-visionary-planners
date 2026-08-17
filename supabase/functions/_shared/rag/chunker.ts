@@ -7,7 +7,44 @@ export interface TextChunk {
 export const CHUNK_SIZE = 1200;
 export const CHUNK_OVERLAP = 200;
 /** Bumped whenever chunking/metadata behaviour changes, so old rows can be detected as stale. */
-export const METADATA_VERSION = 2;
+export const METADATA_VERSION = 3;
+
+/**
+ * Cuts a long string at whitespace instead of mid-word.
+ * Returns pieces no longer than `size`, each ending on a word boundary when one
+ * exists in the last 20% of the window.
+ */
+function splitOnWordBoundaries(text: string, size: number): string[] {
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > size) {
+    const window = rest.slice(0, size);
+    const cut = window.lastIndexOf(' ');
+    const at = cut > size * 0.8 ? cut : size;
+    out.push(rest.slice(0, at).trim());
+    rest = rest.slice(at).trimStart();
+  }
+  if (rest.trim()) out.push(rest.trim());
+  return out;
+}
+
+/**
+ * Tail of the previous chunk reused as overlap, snapped to a clean boundary:
+ * prefer the start of a sentence, else the start of a word — never mid-word.
+ */
+function overlapTail(text: string, overlap: number): string {
+  if (overlap <= 0 || !text) return '';
+  const tail = text.slice(-overlap);
+  if (tail.length === text.length) return tail.trim();
+
+  const sentenceStart = tail.search(/(?<=[.!?])\s+\S/);
+  if (sentenceStart !== -1 && tail.length - sentenceStart > overlap * 0.3) {
+    return tail.slice(sentenceStart).trim();
+  }
+  const wordStart = tail.search(/\s\S/);
+  if (wordStart !== -1) return tail.slice(wordStart + 1).trim();
+  return '';
+}
 
 interface Piece {
   text: string;
@@ -89,8 +126,8 @@ function toPieces(text: string, chunkSize: number): Piece[] {
     for (const sentence of sentences) {
       if (sentence.length > chunkSize) {
         if (buffer.trim()) { pieces.push({ text: buffer.trim(), heading, isTable: false }); buffer = ''; }
-        for (let i = 0; i < sentence.length; i += chunkSize) {
-          pieces.push({ text: sentence.slice(i, i + chunkSize), heading, isTable: false });
+        for (const part of splitOnWordBoundaries(sentence, chunkSize)) {
+          pieces.push({ text: part, heading, isTable: false });
         }
         continue;
       }
@@ -129,7 +166,7 @@ export function chunkText(raw: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_O
 
     if (wouldOverflow || tableNeedsOwnChunk) {
       flush();
-      const tail = piece.isTable ? '' : current.slice(-overlap);
+      const tail = piece.isTable ? '' : overlapTail(current, overlap);
       current = tail ? `${tail}\n\n${piece.text}` : piece.text;
       currentHeading = piece.heading;
     } else {
