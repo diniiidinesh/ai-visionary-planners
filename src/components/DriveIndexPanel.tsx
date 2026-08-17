@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 const CURRENT_EMBEDDING_MODEL = "openai/text-embedding-3-large";
 const CURRENT_CHUNK_SIZE = 1200;
 const CURRENT_CHUNK_OVERLAP = 200;
-const CURRENT_METADATA_VERSION = 2;
+const CURRENT_METADATA_VERSION = 3;
 const AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 interface IndexStats {
@@ -94,18 +94,27 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
 
     let pageToken: string | undefined = undefined;
     let totals: BatchProgress = { files: 0, chunks: 0, skipped: 0, failed: 0 };
+    let retries = 0;
 
     try {
       // Batches are resumable: keep calling until the function reports done.
-      for (let batch = 0; batch < 200; batch++) {
+      for (let batch = 0; batch < 500; batch++) {
         const { data, error } = await supabase.functions.invoke("ingest-drive-documents", {
           body: { pageToken, fullResync },
         });
 
         if (error) {
           const details = (data as any)?.error ?? error.message;
+          // A single batch can hit the function's CPU/time limit on heavy files.
+          // Retry the same page a few times before giving up on the whole run.
+          if (retries < 3) {
+            retries++;
+            await new Promise((r) => setTimeout(r, 1500 * retries));
+            continue;
+          }
           throw new Error(details);
         }
+        retries = 0;
 
         totals = {
           files: totals.files + (data.processed ?? 0),
@@ -128,7 +137,7 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
       console.error("Indexing failed:", e);
       toast({
         title: "Indexing stopped",
-        description: e instanceof Error ? e.message : "Unknown error",
+        description: `${totals.files} indexed before stopping. ${e instanceof Error ? e.message : "Unknown error"}`,
         variant: "destructive",
       });
     } finally {

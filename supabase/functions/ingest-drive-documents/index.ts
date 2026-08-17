@@ -19,7 +19,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FILES_PER_BATCH = 3;
+const FILES_PER_BATCH = 2;
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 serve(async (req) => {
@@ -65,6 +65,10 @@ serve(async (req) => {
     );
     listUrl.searchParams.set('pageSize', String(FILES_PER_BATCH));
     listUrl.searchParams.set('orderBy', 'modifiedTime desc');
+    // Include files that live in shared drives, not just "My Drive".
+    listUrl.searchParams.set('supportsAllDrives', 'true');
+    listUrl.searchParams.set('includeItemsFromAllDrives', 'true');
+    listUrl.searchParams.set('corpora', 'allDrives');
     if (pageToken) listUrl.searchParams.set('pageToken', pageToken);
 
     const listResponse = await fetch(listUrl.toString(), {
@@ -142,7 +146,9 @@ serve(async (req) => {
           continue;
         }
 
-        const contentResponse = await fetch(contentUrlFor(file.id, file.mimeType), {
+        const contentUrl = new URL(contentUrlFor(file.id, file.mimeType));
+        contentUrl.searchParams.set('supportsAllDrives', 'true');
+        const contentResponse = await fetch(contentUrl.toString(), {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
