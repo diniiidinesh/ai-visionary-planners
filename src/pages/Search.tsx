@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Search as SearchIcon, FileText, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings, Plus, MessageSquare } from "lucide-react";
+import { Search as SearchIcon, FileText, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings, Plus, MessageSquare, BookOpen } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
