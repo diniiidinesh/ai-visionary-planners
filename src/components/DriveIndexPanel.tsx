@@ -190,6 +190,23 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
         </div>
 
         {indexing && (
+          <>
+          </>
+        )}
+        {stats.staleDocuments > 0 && !indexing && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <p className="font-medium">{stats.staleDocuments} document(s) indexed with older settings</p>
+              <p className="text-muted-foreground">
+                Chunk size, overlap, embedding model or metadata changed since these were indexed. Run a
+                full re-index so every passage is comparable.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {indexing && (
           <div className="space-y-2">
             <Progress value={undefined} className="h-2" />
             <p className="text-sm text-muted-foreground">
@@ -208,6 +225,16 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
             <RefreshCw className="mr-2 h-4 w-4" />
             Full re-index
           </Button>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-sync">Auto-sync daily</Label>
+            <p className="text-xs text-muted-foreground">
+              Checks for new and edited Drive files once a day when you open the app.
+            </p>
+          </div>
+          <Switch id="auto-sync" checked={autoSync} onCheckedChange={toggleAutoSync} disabled={!connected} />
         </div>
 
         {!connected && (
