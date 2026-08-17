@@ -1,0 +1,2 @@
+REVOKE EXECUTE ON FUNCTION public.match_document_chunks(vector, integer, text, double precision) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.match_document_chunks(vector, integer, text, double precision) TO authenticated;

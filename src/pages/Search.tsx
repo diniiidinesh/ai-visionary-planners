@@ -43,6 +43,14 @@ const Search = () => {
   const [searchStage, setSearchStage] = useState<SearchStage>('idle');
   const [queryId, setQueryId] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  interface RagExcerpt {
+    ref: number;
+    title: string;
+    url?: string;
+    similarity: number;
+    content: string;
+  }
+  const [ragExcerpts, setRagExcerpts] = useState<RagExcerpt[]>([]);
   interface ProcessingLog {
     message: string;
     timestamp: string;
@@ -112,6 +120,7 @@ const Search = () => {
     setHasSearched(true);
     setSearchResults([]);
     setAiSummary("");
+    setRagExcerpts([]);
     setSearchStage('processing');
     setProcessingLogs([]);
     setShowDetails(true);
@@ -128,6 +137,52 @@ const Search = () => {
         navigate("/auth");
         return;
       }
+
+      // Step 0: RAG over the indexed Drive passages (falls back to live search when nothing is indexed)
+      setProcessingLogs(prev => [...prev, {
+        message: "🧠 Searching your indexed document passages...",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
+
+      const { data: ragQueryRow } = await supabase
+        .from('search_queries')
+        .insert({ user_id: user.id, original_query: searchQuery })
+        .select()
+        .single();
+
+      const ragResponse = await supabase.functions.invoke('rag-answer', {
+        body: { question: searchQuery, queryId: ragQueryRow?.id }
+      });
+
+      const ragData: any = ragResponse.data;
+      if (!ragResponse.error && ragData?.summary) {
+        setQueryId(ragQueryRow?.id ?? null);
+        setAiSummary(ragData.summary);
+        setRagExcerpts(ragData.excerpts || []);
+        setSearchResults((ragData.sources || []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          mimeType: s.mimeType || '',
+          webViewLink: s.url,
+          modifiedTime: '',
+          relevanceScore: Math.round((s.topSimilarity || 0) * 100),
+          source: 'google_drive',
+        })));
+        setProcessingLogs(prev => [...prev, {
+          message: `✓ Answered from ${ragData.chunksUsed} indexed passage(s)`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }]);
+        setSearchStage('done');
+        setIsSearching(false);
+        return;
+      }
+
+      setRagExcerpts([]);
+      console.log('RAG unavailable, falling back to live Drive search', ragResponse.error);
+      setProcessingLogs(prev => [...prev, {
+        message: "ℹ️ No indexed passages yet — searching Google Drive live instead",
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }]);
 
       console.log("Step 1: AI Query Processing...");
       
@@ -614,6 +669,36 @@ const Search = () => {
                     )
                   }}
                 />
+                {ragExcerpts.length > 0 && (
+                  <Collapsible className="mt-5">
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                      <ChevronDown className="h-4 w-4" />
+                      <span className="font-medium">Show cited passages ({ragExcerpts.length})</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3 space-y-3">
+                      {ragExcerpts.map((excerpt) => (
+                        <div key={excerpt.ref} className="rounded-lg border bg-card/60 p-3">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <a
+                              href={excerpt.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-primary hover:underline truncate"
+                            >
+                              [{excerpt.ref}] {excerpt.title}
+                            </a>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {(excerpt.similarity * 100).toFixed(0)}% match
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
+                            {excerpt.content}
+                          </p>
+                        </div>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
               </Card>
             )}
 

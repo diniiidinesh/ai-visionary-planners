@@ -56,41 +56,113 @@ export type Database = {
         }
         Relationships: []
       }
+      document_chunks: {
+        Row: {
+          char_count: number | null
+          chunk_index: number
+          content: string
+          content_hash: string | null
+          created_at: string
+          embedding: string
+          embedding_model: string
+          full_url: string | null
+          id: string
+          mime_type: string | null
+          source_id: string
+          source_type: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          char_count?: number | null
+          chunk_index: number
+          content: string
+          content_hash?: string | null
+          created_at?: string
+          embedding: string
+          embedding_model: string
+          full_url?: string | null
+          id?: string
+          mime_type?: string | null
+          source_id: string
+          source_type?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          char_count?: number | null
+          chunk_index?: number
+          content?: string
+          content_hash?: string | null
+          created_at?: string
+          embedding?: string
+          embedding_model?: string
+          full_url?: string | null
+          id?: string
+          mime_type?: string | null
+          source_id?: string
+          source_type?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       document_index: {
         Row: {
+          chunk_count: number
+          content_hash: string | null
           content_snippet: string | null
           created_at: string | null
           full_url: string | null
           id: string
+          ingest_error: string | null
+          ingest_status: string
           last_synced: string | null
           metadata: Json | null
           source_id: string
+          source_modified_time: string | null
           source_type: string
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
+          chunk_count?: number
+          content_hash?: string | null
           content_snippet?: string | null
           created_at?: string | null
           full_url?: string | null
           id?: string
+          ingest_error?: string | null
+          ingest_status?: string
           last_synced?: string | null
           metadata?: Json | null
           source_id: string
+          source_modified_time?: string | null
           source_type: string
           title: string
+          updated_at?: string
           user_id: string
         }
         Update: {
+          chunk_count?: number
+          content_hash?: string | null
           content_snippet?: string | null
           created_at?: string | null
           full_url?: string | null
           id?: string
+          ingest_error?: string | null
+          ingest_status?: string
           last_synced?: string | null
           metadata?: Json | null
           source_id?: string
+          source_modified_time?: string | null
           source_type?: string
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -307,6 +379,25 @@ export type Database = {
       get_user_api_key: {
         Args: { p_provider: string; p_user_id: string }
         Returns: Json
+      }
+      match_document_chunks: {
+        Args: {
+          match_count?: number
+          p_min_similarity?: number
+          p_source_type?: string
+          query_embedding: string
+        }
+        Returns: {
+          chunk_index: number
+          content: string
+          full_url: string
+          id: string
+          mime_type: string
+          similarity: number
+          source_id: string
+          source_type: string
+          title: string
+        }[]
       }
       store_encrypted_oauth_tokens: {
         Args: {
