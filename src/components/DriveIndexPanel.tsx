@@ -2,14 +2,24 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Database, Loader2, RefreshCw } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle, Database, Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+
+// Must match the ingestion settings in supabase/functions/_shared/rag/chunker.ts
+const CURRENT_EMBEDDING_MODEL = "openai/text-embedding-3-large";
+const CURRENT_CHUNK_SIZE = 1200;
+const CURRENT_CHUNK_OVERLAP = 200;
+const CURRENT_METADATA_VERSION = 2;
+const AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 interface IndexStats {
   documents: number;
   chunks: number;
   lastSynced: string | null;
+  staleDocuments: number;
 }
 
 interface BatchProgress {
@@ -21,15 +31,16 @@ interface BatchProgress {
 
 const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
   const { toast } = useToast();
-  const [stats, setStats] = useState<IndexStats>({ documents: 0, chunks: 0, lastSynced: null });
+  const [stats, setStats] = useState<IndexStats>({ documents: 0, chunks: 0, lastSynced: null, staleDocuments: 0 });
   const [indexing, setIndexing] = useState(false);
   const [progress, setProgress] = useState<BatchProgress>({ files: 0, chunks: 0, skipped: 0, failed: 0 });
+  const [autoSync, setAutoSync] = useState(false);
 
   const loadStats = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: docs }, { count: chunkCount }] = await Promise.all([
+    const [{ data: docs }, { count: chunkCount }, { data: staleRows }] = await Promise.all([
       supabase
         .from("document_index")
         .select("last_synced, chunk_count")
@@ -40,6 +51,13 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
         .from("document_chunks")
         .select("id", { count: "exact", head: true })
         .eq("user_id", user.id),
+      supabase
+        .from("document_chunks")
+        .select("source_id")
+        .eq("user_id", user.id)
+        .or(
+          `embedding_model.neq.${CURRENT_EMBEDDING_MODEL},chunk_size.neq.${CURRENT_CHUNK_SIZE},chunk_overlap.neq.${CURRENT_CHUNK_OVERLAP},metadata_version.neq.${CURRENT_METADATA_VERSION}`,
+        ),
     ]);
 
     const lastSynced = (docs ?? [])
@@ -48,12 +66,27 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
       .sort()
       .pop() ?? null;
 
-    setStats({ documents: docs?.length ?? 0, chunks: chunkCount ?? 0, lastSynced });
+    const staleDocuments = new Set((staleRows ?? []).map((r: { source_id: string }) => r.source_id)).size;
+    setStats({ documents: docs?.length ?? 0, chunks: chunkCount ?? 0, lastSynced, staleDocuments });
   }, []);
 
   useEffect(() => {
     loadStats();
   }, [loadStats]);
+
+  // Load the saved auto-sync preference.
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("user_ai_preferences")
+        .select("auto_sync_daily")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      setAutoSync(data?.auto_sync_daily ?? false);
+    })();
+  }, []);
 
   const runIndex = async (fullResync: boolean) => {
     setIndexing(true);
