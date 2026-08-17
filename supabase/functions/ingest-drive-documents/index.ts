@@ -19,7 +19,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FILES_PER_BATCH = 2;
+// One file per invocation: PDF/OOXML parsing plus embedding of a large file can
+// alone exhaust the edge function's CPU budget, and a batch that dies takes the
+// other files in it down too.
+const FILES_PER_BATCH = 1;
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 serve(async (req) => {
