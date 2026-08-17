@@ -23,6 +23,17 @@ interface Chunk {
   chunk_index: number;
   content: string;
   char_count: number | null;
+  embedding_model: string | null;
+  embedding_voyage_model: string | null;
+}
+
+interface Coverage {
+  source_id: string;
+  total_chunks: number;
+  openai_chunks: number;
+  voyage_chunks: number;
+  openai_model: string | null;
+  voyage_model: string | null;
 }
 
 const FRIENDLY_TYPE: Record<string, string> = {
@@ -56,6 +67,7 @@ const IndexedPassagesBrowser = () => {
   const [chunks, setChunks] = useState<Record<string, Chunk[]>>({});
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [filter, setFilter] = useState("");
+  const [coverage, setCoverage] = useState<Record<string, Coverage>>({});
 
   const loadDocs = useCallback(async () => {
     setLoading(true);
@@ -71,6 +83,10 @@ const IndexedPassagesBrowser = () => {
       .eq("source_type", "google_drive")
       .order("last_synced", { ascending: false });
     setDocs((data ?? []) as IndexedDoc[]);
+    const { data: cov } = await (supabase as any).rpc("embedding_coverage_by_document");
+    const map: Record<string, Coverage> = {};
+    for (const row of (cov ?? []) as Coverage[]) map[row.source_id] = row;
+    setCoverage(map);
     setLoading(false);
   }, []);
 
@@ -83,7 +99,7 @@ const IndexedPassagesBrowser = () => {
     setLoadingChunks(true);
     const { data } = await supabase
       .from("document_chunks")
-      .select("id, chunk_index, content, char_count")
+      .select("id, chunk_index, content, char_count, embedding_model, embedding_voyage_model")
       .eq("source_id", sourceId)
       .order("chunk_index", { ascending: true });
     setChunks((prev) => ({ ...prev, [sourceId]: (data ?? []) as Chunk[] }));
