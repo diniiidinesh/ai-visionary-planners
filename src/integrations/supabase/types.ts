@@ -565,35 +565,6 @@ export type Database = {
           vector_rank: number
         }[]
       }
-      match_document_chunks_hybrid_multi: {
-        Args: {
-          match_count?: number
-          p_keyword_weight?: number
-          p_min_similarity?: number
-          p_source_type?: string
-          p_vector_weight?: number
-          query_embedding: string
-          query_texts: string[]
-        }
-        Returns: {
-          author: string
-          chunk_index: number
-          content: string
-          doc_modified_time: string
-          full_url: string
-          fused_score: number
-          heading: string
-          id: string
-          keyword_rank: number
-          keyword_score: number
-          mime_type: string
-          similarity: number
-          source_id: string
-          source_type: string
-          title: string
-          vector_rank: number
-        }[]
-      }
       store_encrypted_oauth_tokens: {
         Args: {
           p_access_token: string
