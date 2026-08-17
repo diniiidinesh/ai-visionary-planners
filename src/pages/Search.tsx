@@ -1,12 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Search as SearchIcon, Filter, Calendar, FileText, Users, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings } from "lucide-react";
+import { Search as SearchIcon, FileText, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings, Plus, MessageSquare } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
@@ -15,96 +12,123 @@ import { useToast } from "@/hooks/use-toast";
 import DOMPurify from "dompurify";
 import { checkUserConnections } from "@/utils/connectionStatus";
 
-interface SearchResult {
+interface SourceRef {
   id: string;
   name: string;
   mimeType: string;
   webViewLink: string;
-  modifiedTime: string;
-  owners?: Array<{ displayName: string; emailAddress: string }>;
   relevanceScore?: number;
-  source?: string;
 }
 
-type SearchStage = 'idle' | 'processing' | 'searching' | 'summarizing' | 'done';
+interface RagExcerpt {
+  ref: number;
+  title: string;
+  heading?: string | null;
+  author?: string | null;
+  modifiedTime?: string | null;
+  url?: string;
+  similarity: number;
+  content: string;
+}
+
+interface RagCandidate {
+  title: string;
+  heading?: string | null;
+  chunkIndex: number;
+  similarity: number | null;
+  keywordScore: number | null;
+  vectorRank: number | null;
+  keywordRank: number | null;
+  fusedScore: number | null;
+  rerankScore?: number | null;
+  used: boolean;
+  preview: string;
+}
+
+interface RagDebug {
+  mode: string;
+  reranked?: boolean;
+  retrievalQuery?: string | null;
+  candidates: RagCandidate[];
+}
+
+// A conversation is a flat list of turns. History sent to rag-answer is
+// derived from this list (previous turns only, not the one being answered),
+// which is what lets the model resolve "what about Q3?" style follow-ups.
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: SourceRef[];
+  excerpts?: RagExcerpt[];
+  ragDebug?: RagDebug | null;
+  staleDocuments?: number;
+  isFallback?: boolean; // answered via live Drive search, not the indexed RAG path
+}
+
+const MAX_HISTORY_TURNS = 8; // sent to rag-answer; keeps the condense-query call cheap
+
+function renderMarkdownish(text: string) {
+  return DOMPurify.sanitize(
+    text
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+      .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '</p><p class="mt-3">')
+      .replace(/^(.+)$/, '<p>$1</p>'),
+    { ALLOWED_TAGS: ['a', 'strong', 'p', 'br'], ALLOWED_ATTR: ['href', 'target', 'rel', 'class'] }
+  );
+}
 
 const Search = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterOpen, setFilterOpen] = useState(true);
-  const [dateRange, setDateRange] = useState("all");
-  const [documentTypes, setDocumentTypes] = useState<string[]>(["google_drive"]);
-  const [myHistoryOnly, setMyHistoryOnly] = useState(false);
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [aiSummary, setAiSummary] = useState<string>("");
-  const [searchStage, setSearchStage] = useState<SearchStage>('idle');
-  const [queryId, setQueryId] = useState<string | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
-  interface RagExcerpt {
-    ref: number;
-    title: string;
-    heading?: string | null;
-    author?: string | null;
-    modifiedTime?: string | null;
-    url?: string;
-    similarity: number;
-    content: string;
-  }
-  const [ragExcerpts, setRagExcerpts] = useState<RagExcerpt[]>([]);
-  interface RagCandidate {
-    title: string;
-    heading?: string | null;
-    chunkIndex: number;
-    similarity: number | null;
-    keywordScore: number | null;
-    vectorRank: number | null;
-    keywordRank: number | null;
-    fusedScore: number | null;
-    used: boolean;
-    preview: string;
-  }
-  const [ragDebug, setRagDebug] = useState<{ mode: string; candidates: RagCandidate[] } | null>(null);
-  const [staleDocuments, setStaleDocuments] = useState(0);
-  interface ProcessingLog {
-    message: string;
-    timestamp: string;
-  }
-  const [processingLogs, setProcessingLogs] = useState<ProcessingLog[]>([]);
-  const [queryDetails, setQueryDetails] = useState<{
-    entities?: string[];
-    searchVariations?: string[];
-    documentTypes?: string[];
-    intent?: string;
-  }>({});
-  const [userEmail, setUserEmail] = useState<string>("");
-  const [userName, setUserName] = useState<string>("");
+
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [recentConversations, setRecentConversations] = useState<{ id: string; title: string | null; updated_at: string }[]>([]);
+
+  const threadEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const verifyConnections = async () => {
+    const verify = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         navigate("/auth");
         return;
       }
-
       setUserEmail(user.email || "");
       setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || "User");
-      
+
       const { hasConnections } = await checkUserConnections(user.id);
       if (!hasConnections) {
-        toast({
-          title: "No connections found",
-          description: "Let's connect your knowledge sources first",
-        });
+        toast({ title: "No connections found", description: "Let's connect your knowledge sources first" });
         navigate("/connect");
+        return;
       }
+
+      loadRecentConversations(user.id);
     };
-    
-    verifyConnections();
+    verify();
   }, [navigate, toast]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isSending]);
+
+  const loadRecentConversations = async (userId: string) => {
+    const { data } = await supabase
+      .from('conversations')
+      .select('id, title, updated_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(10);
+    setRecentConversations(data ?? []);
+  };
 
   const quickExamples = [
     "Find the PRD for mobile app redesign",
@@ -112,286 +136,209 @@ const Search = () => {
     "Show me Q4 OKR decisions",
   ];
 
-  const recentSearches = [
-    { query: "Feature prioritization Q2 2024", time: "2 hours ago" },
-    { query: "Customer feedback analysis", time: "Yesterday" },
-    { query: "Roadmap decisions", time: "3 days ago" },
-  ];
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      toast({
-        title: "Empty search",
-        description: "Please enter a search query",
-        variant: "destructive",
-      });
+  const startNewConversation = () => {
+    setConversationId(null);
+    setMessages([]);
+    setInput("");
+  };
+
+  const openConversation = async (id: string) => {
+    const { data } = await supabase
+      .from('conversation_messages')
+      .select('id, role, content, sources, created_at')
+      .eq('conversation_id', id)
+      .order('created_at', { ascending: true });
+
+    setConversationId(id);
+    setMessages(
+      (data ?? []).map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        sources: m.role === 'assistant' ? (m.sources ?? []) : undefined,
+      }))
+    );
+  };
+
+  const handleSend = async () => {
+    const question = input.trim();
+    if (!question) {
+      toast({ title: "Empty message", description: "Type a question first", variant: "destructive" });
       return;
     }
 
-    setIsSearching(true);
-    setHasSearched(true);
-    setSearchResults([]);
-    setAiSummary("");
-    setRagExcerpts([]);
-    setRagDebug(null);
-    setStaleDocuments(0);
-    setSearchStage('processing');
-    setProcessingLogs([]);
-    setShowDetails(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: question };
+    // History = every prior turn in this thread, oldest first, capped so the
+    // condense-question call in rag-answer stays cheap and fast.
+    const historyForRequest = messages
+      .slice(-MAX_HISTORY_TURNS)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setIsSending(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast({
-          title: "Not authenticated",
-          description: "Please log in to search",
-          variant: "destructive",
-        });
-        navigate("/auth");
-        return;
+      // Persist the conversation + this user turn up front (mirrors the
+      // existing search_queries pattern: write happens client-side, the edge
+      // function stays stateless).
+      let convId = conversationId;
+      if (!convId) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .insert({ user_id: user.id, title: question.slice(0, 80) })
+          .select('id')
+          .single();
+        convId = conv?.id ?? null;
+        setConversationId(convId);
+        if (convId) loadRecentConversations(user.id);
       }
-
-      // Step 0: RAG over the indexed Drive passages (falls back to live search when nothing is indexed)
-      setProcessingLogs(prev => [...prev, {
-        message: "🧠 Searching your indexed document passages...",
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
+      if (convId) {
+        await supabase.from('conversation_messages').insert({
+          conversation_id: convId,
+          user_id: user.id,
+          role: 'user',
+          content: question,
+        });
+      }
 
       const { data: ragQueryRow } = await supabase
         .from('search_queries')
-        .insert({ user_id: user.id, original_query: searchQuery })
+        .insert({ user_id: user.id, original_query: question })
         .select()
         .single();
 
       const ragResponse = await supabase.functions.invoke('rag-answer', {
-        body: { question: searchQuery, queryId: ragQueryRow?.id }
+        body: {
+          question,
+          queryId: ragQueryRow?.id,
+          history: historyForRequest,
+        },
       });
 
       const ragData: any = ragResponse.data;
+
       if (!ragResponse.error && ragData?.summary) {
-        setQueryId(ragQueryRow?.id ?? null);
-        setAiSummary(ragData.summary);
-        setRagExcerpts(ragData.excerpts || []);
-        setRagDebug(ragData.retrieval ?? null);
-        setStaleDocuments(ragData.staleDocuments ?? 0);
-        setSearchResults((ragData.sources || []).map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          mimeType: s.mimeType || '',
-          webViewLink: s.url,
-          modifiedTime: '',
-          relevanceScore: Math.round((s.topSimilarity || 0) * 100),
-          source: 'google_drive',
-        })));
-        setProcessingLogs(prev => [...prev, {
-          message: `✓ Answered from ${ragData.chunksUsed} indexed passage(s)`,
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        }]);
-        setSearchStage('done');
-        setIsSearching(false);
+        const assistantMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: ragData.summary,
+          sources: (ragData.sources || []).map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            mimeType: s.mimeType || '',
+            webViewLink: s.url,
+            relevanceScore: Math.round((s.topSimilarity || 0) * 100),
+          })),
+          excerpts: ragData.excerpts || [],
+          ragDebug: ragData.retrieval ?? null,
+          staleDocuments: ragData.staleDocuments ?? 0,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        if (convId) {
+          await supabase.from('conversation_messages').insert({
+            conversation_id: convId,
+            user_id: user.id,
+            role: 'assistant',
+            content: ragData.summary,
+            sources: assistantMessage.sources as any,
+          });
+        }
         return;
       }
 
-      setRagExcerpts([]);
-      console.log('RAG unavailable, falling back to live Drive search', ragResponse.error);
-      setProcessingLogs(prev => [...prev, {
-        message: "ℹ️ No indexed passages yet — searching Google Drive live instead",
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-
-      console.log("Step 1: AI Query Processing...");
-      
-      // Fetch user's AI preferences for search model
-      const { data: searchPrefs } = await supabase
-        .from('user_ai_preferences')
-        .select('search_provider, search_model')
-        .eq('user_id', user.id)
-        .single();
-      
-      const searchProviderLabel = searchPrefs?.search_provider === 'openai' ? 'OpenAI' : 
-                                   searchPrefs?.search_provider === 'google' ? 'Google Gemini' : 
-                                   'Lovable AI';
-      const searchModelName = searchPrefs?.search_model || 'default model';
-      
-      setProcessingLogs(prev => [...prev, {
-        message: `🔍 Analyzing your question with ${searchProviderLabel} (${searchModelName})...`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      
-      // Step 1: AI Query Processing
+      // Nothing indexed yet — fall back to a one-shot live Drive search + summary.
+      // (Follow-up context doesn't carry into this path; it's a bootstrap path
+      // for users who haven't indexed anything yet.)
       const { data: queryPlan, error: queryError } = await supabase.functions.invoke('ai-search', {
-        body: { query: searchQuery }
+        body: { query: question },
       });
+      if (queryError) throw queryError;
 
-      if (queryError) {
-        console.error("Query processing error:", queryError);
-        throw queryError;
-      }
-
-      console.log("Query processed:", queryPlan);
-      
-      // Store query details for display
-      setQueryDetails({
-        entities: queryPlan.entities,
-        searchVariations: queryPlan.searchVariations,
-        documentTypes: queryPlan.documentTypes,
-        intent: queryPlan.intent
-      });
-      
-      setProcessingLogs(prev => [...prev, {
-        message: `✓ Identified ${queryPlan.entities?.length || 0} key entities`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      setProcessingLogs(prev => [...prev, {
-        message: `✓ Generated ${queryPlan.searchVariations?.length || 0} search variations`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      setQueryId(queryPlan.queryId);
-      setSearchStage('searching');
-
-      // Step 2: Multi-Source Search
-      console.log("Step 2: Searching sources...");
-      setProcessingLogs(prev => [...prev, {
-        message: "📂 Searching across your Google Drive...",
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      
       const { data: searchData, error: searchError } = await supabase.functions.invoke('multi-source-search', {
-        body: { 
+        body: {
           searchVariations: queryPlan.searchVariations,
           documentTypes: queryPlan.documentTypes,
           entities: queryPlan.entities,
-          originalQuery: searchQuery,
-          dateRange: dateRange
-        }
+          originalQuery: question,
+          dateRange: "all",
+        },
       });
-
       if (searchError) {
-        console.error("Search error:", searchError);
-        
         if (searchError.message?.includes('No Google Drive connection')) {
-          toast({
-            title: "Connection required",
-            description: "Please connect your Google Drive first",
-            variant: "destructive",
-          });
+          toast({ title: "Connection required", description: "Please connect your Google Drive first", variant: "destructive" });
           navigate("/connect");
           return;
         }
-
         throw searchError;
       }
 
-      console.log("Search complete:", searchData);
       const results = searchData.results || [];
-      setSearchResults(results);
-
       if (results.length === 0) {
-        setSearchStage('done');
-        setProcessingLogs(prev => [...prev, {
-          message: "❌ No matching documents found",
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        setMessages((prev) => [...prev, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "❌ No matching documents found. Try a different question, or index your Drive from the Connect page for better answers.",
+          isFallback: true,
         }]);
-        toast({
-          title: "No results found",
-          description: "Try a different search query",
-        });
-        setIsSearching(false);
         return;
       }
 
-      setProcessingLogs(prev => [...prev, {
-        message: `✓ Found ${results.length} relevant documents`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      setProcessingLogs(prev => [...prev, {
-        message: "📄 Retrieving document content...",
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      setSearchStage('summarizing');
-
-      // Step 3: AI Summarization
-      console.log("Step 3: Generating AI summary...");
-      
-      // Fetch user's AI preferences to show the correct provider
-      const { data: userPrefs } = await supabase
-        .from('user_ai_preferences')
-        .select('summarize_provider, summarize_model')
-        .eq('user_id', user.id)
-        .single();
-      
-      const providerLabel = userPrefs?.summarize_provider === 'openai' ? 'OpenAI' : 
-                           userPrefs?.summarize_provider === 'google' ? 'Google Gemini' : 
-                           'Lovable AI';
-      const modelName = userPrefs?.summarize_model || 'default model';
-      
-      setProcessingLogs(prev => [...prev, {
-        message: `✨ Generating AI summary with ${providerLabel} (${modelName})...`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      
       const { data: summaryData, error: summaryError } = await supabase.functions.invoke('ai-summarize', {
-        body: {
-          question: searchQuery,
-          documents: results.slice(0, 10),
-          queryId: queryPlan.queryId
-        }
+        body: { question, documents: results.slice(0, 10), queryId: queryPlan.queryId },
       });
 
-      if (summaryError) {
-        console.error("Summary error:", summaryError);
-        setProcessingLogs(prev => [...prev, {
-          message: "⚠️ Summary generation encountered an error",
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        }]);
-        // Don't fail the whole search if summary fails
-        toast({
-          title: "Summary generation failed",
-          description: "But search results are available below",
-          variant: "destructive",
+      const assistantMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: summaryError ? "⚠️ Summary generation failed, but here are the matching documents below." : summaryData.summary,
+        sources: results.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          mimeType: r.mimeType || '',
+          webViewLink: r.webViewLink,
+        })),
+        isFallback: true,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      if (convId) {
+        await supabase.from('conversation_messages').insert({
+          conversation_id: convId,
+          user_id: user.id,
+          role: 'assistant',
+          content: assistantMessage.content,
+          sources: assistantMessage.sources as any,
         });
-      } else {
-        console.log("Summary generated");
-        setProcessingLogs(prev => [...prev, {
-          message: "✓ AI summary generated successfully",
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        }]);
-        setAiSummary(summaryData.summary);
       }
-
-      setSearchStage('done');
-      setProcessingLogs(prev => [...prev, {
-        message: "✅ Search complete!",
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }]);
-      toast({
-        title: "Search complete",
-        description: `Found ${results.length} result(s) with AI summary`,
-      });
-
     } catch (error: any) {
       console.error("Search error:", error);
-      toast({
-        title: "Search failed",
-        description: error.message || "An error occurred during search",
-        variant: "destructive",
-      });
-      setSearchStage('idle');
+      toast({ title: "Something went wrong", description: error.message || "An error occurred", variant: "destructive" });
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "❌ Something went wrong answering that. Please try again.",
+      }]);
     } finally {
-      setIsSearching(false);
+      setIsSending(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Top Navigation */}
-      <nav className="border-b bg-card">
+      <nav className="border-b bg-card shrink-0">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -402,9 +349,7 @@ const Search = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback>
-                      <User className="h-4 w-4" />
-                    </AvatarFallback>
+                    <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>
                   </Avatar>
                   <ChevronDown className="h-4 w-4" />
                 </Button>
@@ -432,469 +377,189 @@ const Search = () => {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-[280px_1fr] gap-8">
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Filters */}
-            <Card className="p-4">
-              <Collapsible open={filterOpen} onOpenChange={setFilterOpen}>
-                <CollapsibleTrigger className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4" />
-                    <span className="font-semibold">Filters</span>
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-4 space-y-4">
-                  {/* Date Range */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Date Range
-                    </Label>
-                    <RadioGroup value={dateRange} onValueChange={setDateRange}>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="all" id="all" />
-                        <Label htmlFor="all" className="font-normal cursor-pointer">All time</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="week" id="week" />
-                        <Label htmlFor="week" className="font-normal cursor-pointer">Past week</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="month" id="month" />
-                        <Label htmlFor="month" className="font-normal cursor-pointer">Past month</Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-6 grid grid-cols-[260px_1fr] gap-6 min-h-0">
+        {/* Sidebar: conversation list */}
+        <div className="space-y-4">
+          <Button onClick={startNewConversation} className="w-full justify-start" variant="outline">
+            <Plus className="h-4 w-4 mr-2" />
+            New conversation
+          </Button>
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <History className="h-4 w-4" />
+              <span className="font-semibold text-sm">Conversations</span>
+            </div>
+            <div className="space-y-1">
+              {recentConversations.length === 0 && (
+                <p className="text-xs text-muted-foreground">No conversations yet</p>
+              )}
+              {recentConversations.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => openConversation(c.id)}
+                  className={`w-full text-left p-2 rounded hover:bg-accent transition-colors flex items-start gap-2 ${conversationId === c.id ? 'bg-accent' : ''}`}
+                >
+                  <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                  <span className="text-sm truncate">{c.title || "Untitled"}</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        </div>
 
-                  {/* Document Types */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Document Types
-                    </Label>
-                    <div className="space-y-2">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox 
-                          id="google_drive" 
-                          checked={documentTypes.includes("google_drive")}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setDocumentTypes([...documentTypes, "google_drive"]);
-                            } else {
-                              setDocumentTypes(documentTypes.filter(t => t !== "google_drive"));
-                            }
-                          }}
-                        />
-                        <Label htmlFor="google_drive" className="font-normal cursor-pointer">
-                          Google Drive
-                        </Label>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* My History */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      Scope
-                    </Label>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="myHistory" 
-                        checked={myHistoryOnly}
-                        onCheckedChange={(checked) => setMyHistoryOnly(checked as boolean)}
-                      />
-                      <Label htmlFor="myHistory" className="font-normal cursor-pointer">
-                        Only my documents
-                      </Label>
-                    </div>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </Card>
-
-            {/* Recent Searches */}
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <History className="h-4 w-4" />
-                <span className="font-semibold">Recent Searches</span>
-              </div>
-              <div className="space-y-2">
-                {recentSearches.map((search, idx) => (
-                  <button
-                    key={idx}
-                    className="w-full text-left p-2 rounded hover:bg-accent transition-colors"
-                    onClick={() => setSearchQuery(search.query)}
-                  >
-                    <p className="text-sm font-medium truncate">{search.query}</p>
-                    <p className="text-xs text-muted-foreground">{search.time}</p>
-                  </button>
-                ))}
-              </div>
-            </Card>
-          </div>
-
-          {/* Main Content */}
-          <div className="space-y-6">
-            {/* Search Bar */}
-            <Card className="p-6">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="text"
-                    placeholder="Ask anything about your documents..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                    className="text-lg py-6"
-                  />
-                  <Button 
-                    onClick={handleSearch} 
-                    disabled={isSearching}
-                    size="lg"
-                    className="px-8"
-                  >
-                    {isSearching ? (
-                      <>
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        {searchStage === 'processing' && 'Processing...'}
-                        {searchStage === 'searching' && 'Searching...'}
-                        {searchStage === 'summarizing' && 'Summarizing...'}
-                      </>
-                    ) : (
-                      <>
-                        <SearchIcon className="mr-2 h-5 w-5" />
-                        Search
-                      </>
-                    )}
-                  </Button>
+        {/* Main: chat thread */}
+        <div className="flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+            {messages.length === 0 && (
+              <Card className="p-6">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                  <SearchIcon className="h-5 w-5 text-primary" />
+                  Ask anything about your documents
+                </h3>
+                <div className="space-y-2">
+                  {quickExamples.map((example, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setInput(example)}
+                      className="w-full text-left p-3 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors"
+                    >
+                      <p className="text-sm">{example}</p>
+                    </button>
+                  ))}
                 </div>
-                
-                {(isSearching || processingLogs.length > 0) && (
-                  <div className="mt-4">
-                    <Collapsible open={showDetails} onOpenChange={setShowDetails}>
-                      <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        <ChevronDown className={`h-4 w-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
-                        <span className="font-medium">
-                          {isSearching ? 'Processing details...' : 'View processing details'}
-                        </span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="mt-3">
-                        <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
-                          {/* Query Details */}
-                          {(queryDetails.entities || queryDetails.searchVariations || queryDetails.documentTypes || queryDetails.intent) && (
-                            <div className="space-y-3 pb-4 border-b border-border/50">
-                              {queryDetails.intent && (
-                                <div>
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Intent</span>
-                                  <p className="text-sm text-foreground mt-1.5">{queryDetails.intent}</p>
-                                </div>
-                              )}
-                              
-                              {queryDetails.entities && queryDetails.entities.length > 0 && (
-                                <div>
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Key Entities</span>
-                                  <div className="flex flex-wrap gap-2 mt-1.5">
-                                    {queryDetails.entities.map((entity, idx) => (
-                                      <span key={idx} className="px-2.5 py-1 bg-primary/10 text-primary text-xs rounded-md font-medium">
-                                        {entity}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {queryDetails.searchVariations && queryDetails.searchVariations.length > 0 && (
-                                <div>
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Search Variations</span>
-                                  <ul className="mt-1.5 space-y-1.5">
-                                    {queryDetails.searchVariations.map((variation, idx) => (
-                                      <li key={idx} className="text-sm text-foreground flex items-start gap-2">
-                                        <span className="text-muted-foreground shrink-0 font-mono text-xs">{idx + 1}.</span>
-                                        <span className="flex-1">{variation}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              
-                              {queryDetails.documentTypes && queryDetails.documentTypes.length > 0 && (
-                                <div>
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Document Types</span>
-                                  <div className="flex flex-wrap gap-2 mt-1.5">
-                                    {queryDetails.documentTypes.map((type, idx) => (
-                                      <span key={idx} className="px-2.5 py-1 bg-secondary text-secondary-foreground text-xs rounded-md font-medium">
-                                        {type}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          
-                          {/* Processing Logs */}
-                          <div className="space-y-2">
-                            {processingLogs.map((log, index) => (
-                              <div key={index} className="flex items-start gap-2 text-sm">
-                                <span className="text-muted-foreground font-mono text-xs mt-0.5">
-                                  {log.timestamp}
-                                </span>
-                                <span className="flex-1">{log.message}</span>
-                              </div>
-                            ))}
-                            {isSearching && (
-                              <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                <span>Processing...</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </div>
-                )}
-              </div>
-            </Card>
-
-            {/* AI Summary */}
-            {hasSearched && aiSummary && (
-              <Card className="p-6 bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-xl font-semibold mb-1">AI Summary</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Generated by Gemini 2.5 Pro • Based on {searchResults.length} document(s)
-                    </p>
-                  </div>
-                </div>
-                <div 
-                  className="prose prose-sm max-w-none dark:prose-invert text-foreground"
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(
-                      aiSummary
-                        // First handle markdown-style links [text](url)
-                        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
-                        // Then handle plain URLs (http:// or https://)
-                        .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline font-medium">$1</a>')
-                        // Handle bold text
-                        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                        // Handle line breaks
-                        .replace(/\n\n/g, '</p><p class="mt-4">')
-                        .replace(/^(.+)$/, '<p>$1</p>'),
-                      {
-                        ALLOWED_TAGS: ['a', 'strong', 'p', 'br'],
-                        ALLOWED_ATTR: ['href', 'target', 'rel', 'class']
-                      }
-                    )
-                  }}
-                />
-                {ragExcerpts.length > 0 && (
-                  <Collapsible className="mt-5">
-                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                      <ChevronDown className="h-4 w-4" />
-                      <span className="font-medium">Show cited passages ({ragExcerpts.length})</span>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 space-y-3">
-                      {ragExcerpts.map((excerpt) => (
-                        <div key={excerpt.ref} className="rounded-lg border bg-card/60 p-3">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <a
-                              href={excerpt.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-primary hover:underline truncate"
-                            >
-                              [{excerpt.ref}] {excerpt.title}
-                            </a>
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {(excerpt.similarity * 100).toFixed(0)}% match
-                            </span>
-                          </div>
-                          {(excerpt.heading || excerpt.author || excerpt.modifiedTime) && (
-                            <p className="mb-1 text-[11px] text-muted-foreground">
-                              {[
-                                excerpt.heading,
-                                excerpt.author,
-                                excerpt.modifiedTime
-                                  ? new Date(excerpt.modifiedTime).toLocaleDateString()
-                                  : null,
-                              ].filter(Boolean).join(" · ")}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
-                            {excerpt.content}
-                          </p>
-                        </div>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
-                {staleDocuments > 0 && (
-                  <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
-                    <span className="font-medium">{staleDocuments} document(s) need re-indexing.</span>{" "}
-                    They were indexed with older chunk or embedding settings, so their passages may be
-                    ranked incorrectly. Run a full re-index from the Connect page.
-                  </div>
-                )}
-                {ragDebug && (
-                  <Collapsible className="mt-4">
-                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                      <ChevronDown className="h-4 w-4" />
-                      <span className="font-medium">
-                        Retrieval debug · {ragDebug.mode} · {ragDebug.candidates.length} candidates
-                      </span>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 space-y-2">
-                      {ragDebug.candidates.map((candidate, i) => (
-                        <div
-                          key={`${candidate.title}-${candidate.chunkIndex}-${i}`}
-                          className={`rounded-md border p-2 text-xs ${candidate.used ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}
-                        >
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="font-medium truncate max-w-[16rem]">{candidate.title}</span>
-                            <span className="text-muted-foreground">#{candidate.chunkIndex}</span>
-                            {candidate.heading && (
-                              <span className="text-muted-foreground truncate max-w-[12rem]">{candidate.heading}</span>
-                            )}
-                            <span className="text-muted-foreground">
-                              cosine {candidate.similarity != null ? (candidate.similarity * 100).toFixed(1) + "%" : "—"}
-                            </span>
-                            <span className="text-muted-foreground">
-                              vec rank {candidate.vectorRank ?? "—"} · kw rank {candidate.keywordRank ?? "—"}
-                            </span>
-                            <span className="text-muted-foreground">
-                              fused {candidate.fusedScore != null ? candidate.fusedScore.toFixed(4) : "—"}
-                            </span>
-                            <span className={candidate.used ? "text-primary font-medium" : "text-muted-foreground"}>
-                              {candidate.used ? "used" : "not used"}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-muted-foreground line-clamp-2">{candidate.preview}</p>
-                        </div>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
+                <p className="text-xs text-muted-foreground mt-4">
+                  Follow-up questions ("what about the other one?") work — this is a conversation, not a one-shot search.
+                </p>
               </Card>
             )}
 
-            {/* Search Results */}
-            {hasSearched && (
-              <div className="space-y-4">
-                {searchResults.length > 0 ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-semibold">
-                        Sources ({searchResults.length})
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
-                        Sorted by relevance
-                      </p>
+            {messages.map((m) => (
+              <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                {m.role === "user" ? (
+                  <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-4 py-2.5">
+                    <p className="text-sm">{m.content}</p>
+                  </div>
+                ) : (
+                  <Card className="max-w-[85%] p-5 bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+                    <div className="flex items-start gap-2 mb-2">
+                      <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                      <div
+                        className="prose prose-sm max-w-none dark:prose-invert text-foreground flex-1"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdownish(m.content) }}
+                      />
                     </div>
-                    <div className="grid gap-4">
-                      {searchResults.map((result) => (
-                        <Card key={result.id} className="p-6 hover:shadow-lg transition-shadow">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <FileText className="h-5 w-5 text-primary" />
-                                <h3 className="font-semibold text-lg">{result.name}</h3>
-                                {result.relevanceScore && result.relevanceScore > 10 && (
-                                  <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
-                                    High relevance
-                                  </span>
-                                )}
+                    {m.isFallback && (
+                      <p className="text-xs text-muted-foreground italic">Answered via live Drive search (nothing indexed yet)</p>
+                    )}
+
+                    {!!m.excerpts?.length && (
+                      <Collapsible className="mt-3">
+                        <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          <span className="font-medium">Cited passages ({m.excerpts.length})</span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-2 space-y-2">
+                          {m.excerpts.map((e) => (
+                            <div key={e.ref} className="rounded-lg border bg-card/60 p-3">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-primary hover:underline truncate">
+                                  [{e.ref}] {e.title}
+                                </a>
+                                <span className="text-[10px] text-muted-foreground shrink-0">{(e.similarity * 100).toFixed(0)}% match</span>
                               </div>
-                              <div className="space-y-2 text-sm text-muted-foreground">
-                                {result.mimeType && <p>Type: {result.mimeType}</p>}
-                                {result.owners && result.owners[0] && (
-                                  <p>Owner: {result.owners[0].displayName}</p>
+                              <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4">{e.content}</p>
+                            </div>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
+
+                    {m.ragDebug && (
+                      <Collapsible className="mt-3">
+                        <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          <span className="font-medium">
+                            Retrieval debug · {m.ragDebug.mode}{m.ragDebug.reranked ? " · reranked" : ""}
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-2 space-y-2">
+                          {m.ragDebug.retrievalQuery && (
+                            <p className="text-[11px] text-muted-foreground">
+                              Rewritten for retrieval: <span className="italic">"{m.ragDebug.retrievalQuery}"</span>
+                            </p>
+                          )}
+                          {m.ragDebug.candidates.map((c, i) => (
+                            <div key={`${c.title}-${c.chunkIndex}-${i}`} className={`rounded-md border p-2 text-[11px] ${c.used ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="font-medium truncate max-w-[14rem]">{c.title}</span>
+                                <span className="text-muted-foreground">
+                                  cosine {c.similarity != null ? (c.similarity * 100).toFixed(1) + "%" : "—"}
+                                </span>
+                                {c.rerankScore != null && (
+                                  <span className="text-muted-foreground">rerank {(c.rerankScore * 100).toFixed(1)}%</span>
                                 )}
-                                {result.modifiedTime && (
-                                  <p>
-                                    Last modified: {new Date(result.modifiedTime).toLocaleDateString()}
-                                  </p>
-                                )}
+                                <span className={c.used ? "text-primary font-medium" : "text-muted-foreground"}>{c.used ? "used" : "not used"}</span>
                               </div>
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => window.open(result.webViewLink, '_blank')}
-                            >
-                              <ExternalLink className="h-4 w-4 mr-2" />
-                              Open
-                            </Button>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <Card className="p-12 text-center">
-                    <h3 className="text-xl font-semibold mb-2">No results found</h3>
-                    <p className="text-muted-foreground">
-                      Try adjusting your search query or filters
-                    </p>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
+
+                    {!!m.staleDocuments && m.staleDocuments > 0 && (
+                      <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs">
+                        {m.staleDocuments} document(s) need re-indexing — run a full re-index from the Connect page.
+                      </div>
+                    )}
+
+                    {!!m.sources?.length && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {m.sources.map((s) => (
+                          <a
+                            key={s.id}
+                            href={s.webViewLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-secondary text-secondary-foreground text-[11px] hover:underline"
+                          >
+                            <FileText className="h-3 w-3" />
+                            {s.name}
+                            <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </Card>
                 )}
               </div>
-            )}
+            ))}
 
-            {/* Quick Start Examples (shown when no search) */}
-            {!hasSearched && (
-              <div className="space-y-6">
-                <Card className="p-6">
-                  <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <SearchIcon className="h-5 w-5 text-primary" />
-                    Quick Start Examples
-                  </h3>
-                  <div className="space-y-2">
-                    {quickExamples.map((example, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSearchQuery(example)}
-                        className="w-full text-left p-3 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors"
-                      >
-                        <p className="text-sm">{example}</p>
-                      </button>
-                    ))}
-                  </div>
-                </Card>
-
-                <Card className="p-6 bg-primary/5">
-                  <h3 className="font-semibold mb-2">How it works</h3>
-                  <div className="space-y-3 text-sm text-muted-foreground">
-                    <div className="flex gap-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                        1
-                      </div>
-                      <p>AI analyzes your question to understand what you're looking for</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                        2
-                      </div>
-                      <p>Searches across all your connected sources</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                        3
-                      </div>
-                      <p>Generates a comprehensive summary with sources cited</p>
-                    </div>
-                  </div>
-                </Card>
+            {isSending && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Thinking...</span>
               </div>
             )}
+            <div ref={threadEndRef} />
           </div>
+
+          {/* Input bar */}
+          <Card className="p-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <Input
+                type="text"
+                placeholder={messages.length ? "Ask a follow-up..." : "Ask anything about your documents..."}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                disabled={isSending}
+                className="text-base py-5"
+              />
+              <Button onClick={handleSend} disabled={isSending} size="lg">
+                {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <SearchIcon className="h-5 w-5" />}
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
     </div>

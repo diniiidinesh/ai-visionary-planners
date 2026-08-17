@@ -5,6 +5,7 @@ import { AIProviderFactory } from '../_shared/ai/provider-factory.ts';
 import { AIConfigManager } from '../_shared/ai/config-manager.ts';
 import { embedQuery, EmbeddingError, EMBEDDING_MODEL } from '../_shared/rag/embeddings.ts';
 import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
+import { rerank, RerankError } from '../_shared/rag/reranker.ts';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -12,10 +13,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const HistoryTurnSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().max(4000),
+});
+
 const RagAnswerSchema = z.object({
   question: z.string().min(1, 'Question is required').max(1000, 'Question too long'),
   queryId: z.string().optional(),
   matchCount: z.number().int().min(1).max(40).optional(),
+  // Prior turns in the conversation, oldest first. Used to (a) resolve
+  // follow-up questions ("what about Q3?") into a standalone search query,
+  // and (b) give the answer model conversational context. Capped client-side.
+  history: z.array(HistoryTurnSchema).max(12).optional(),
   // Per-request overrides (the tuning console can preview without saving).
   overrides: z.object({
     temperature: z.number().min(0).max(1).optional(),
@@ -61,7 +71,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    const { question, queryId, matchCount, overrides } = validation.data;
+    const { question, queryId, matchCount, overrides, history } = validation.data;
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -125,12 +135,39 @@ serve(async (req) => {
       );
 
     const startTime = Date.now();
+    const configManager = new AIConfigManager(supabase, user.id);
+
+    // Follow-up questions ("what about the pricing for that one?") don't embed
+    // well on their own — the referent lives in prior turns, not the question
+    // text. When there's history, ask a cheap/fast model to fold it into one
+    // standalone question before embedding. The conversation is still passed
+    // to the answer model separately below, so this step only affects retrieval.
+    let retrievalQuery = question;
+    if (history && history.length > 0) {
+      try {
+        const condenseConfig = await configManager.getProviderConfig('search');
+        const condenseProvider = AIProviderFactory.create(condenseConfig);
+        const transcript = history.map((h) => `${h.role}: ${h.content}`).join('\n');
+        const condensed = await condenseProvider.chat({
+          messages: [{
+            role: 'user',
+            content: `Conversation so far:\n${transcript}\n\nFollow-up question: ${question}\n\nRewrite the follow-up as a single standalone question that makes sense with no prior context. Preserve its intent exactly. Reply with only the rewritten question, nothing else.`,
+          }],
+          temperature: 0,
+          maxTokens: 200,
+        });
+        if (condensed.content?.trim()) retrievalQuery = condensed.content.trim();
+      } catch (err) {
+        console.error('Query condensation failed, falling back to raw question:', err);
+      }
+    }
+
     const weights = weightsFor(settings.retrievalMode);
-    const queryEmbedding = weights.vector > 0 ? await embedQuery(question) : new Array(3072).fill(0);
+    const queryEmbedding = weights.vector > 0 ? await embedQuery(retrievalQuery) : new Array(3072).fill(0);
 
     const { data: matches, error: matchError } = await supabase.rpc('match_document_chunks_hybrid', {
       query_embedding: JSON.stringify(queryEmbedding),
-      query_text: question,
+      query_text: retrievalQuery,
       match_count: settings.retrievalTopK,
       p_source_type: 'google_drive',
       p_min_similarity: settings.minSimilarity,
@@ -143,7 +180,7 @@ serve(async (req) => {
       throw new Error(matchError.message);
     }
 
-    const chunks = (matches || []) as any[];
+    let chunks = (matches || []) as any[];
     if (chunks.length === 0) {
       return new Response(
         JSON.stringify({
@@ -155,6 +192,26 @@ serve(async (req) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Reranking: a cross-encoder re-scores query+passage pairs together, which
+    // catches relevance that cosine similarity / keyword rank alone miss.
+    // Silently no-ops (keeps hybrid order) if VOYAGE_API_KEY isn't set.
+    let reranked = false;
+    try {
+      const rerankResult = await rerank(
+        retrievalQuery,
+        chunks.map((c) => c.content as string),
+        Math.min(chunks.length, settings.retrievalTopK)
+      );
+      if (rerankResult) {
+        reranked = true;
+        chunks = rerankResult
+          .map((r) => ({ ...chunks[r.index], rerank_score: r.relevanceScore }))
+          .sort((a, b) => b.rerank_score - a.rerank_score);
+      }
+    } catch (err) {
+      console.error('Rerank failed, falling back to hybrid order:', err);
     }
 
     // Cap passages per document so one file can't crowd out the rest.
@@ -188,16 +245,16 @@ serve(async (req) => {
         c.doc_modified_time ? `Last modified: ${new Date(c.doc_modified_time).toISOString().slice(0, 10)}` : null,
         `URL: ${c.full_url}`,
         `Relevance: ${(Number(c.similarity ?? 0) * 100).toFixed(1)}%`,
+        reranked ? `Rerank score: ${(Number(c.rerank_score ?? 0) * 100).toFixed(1)}%` : null,
       ].filter(Boolean).join('\n');
       return `[${i + 1}] ${header}\n---\n${c.content}\n---`;
     }).join('\n\n');
 
-    const configManager = new AIConfigManager(supabase, user.id);
     const providerConfig = await configManager.getProviderConfig('summarize');
     const aiProvider = AIProviderFactory.create(providerConfig);
 
     const prompt = `You are answering a question strictly from retrieved excerpts of the user's own documents.
-
+${history && history.length > 0 ? '\nThe user may be asking a follow-up — use the prior conversation only to resolve references (e.g. "that", "the other one"); still answer strictly from the excerpts below.\n' : ''}
 **Question**: ${question}
 
 **Retrieved excerpts**:
@@ -212,8 +269,16 @@ ${context}
 6. Aim for 150-300 words, using **bold** for key findings and bullets for lists.
 7. End with one of: ✅ **High Confidence**, ⚠️ **Medium Confidence**, or ❌ **Low Confidence**.`;
 
+    // Prior turns ride as real conversation messages (so the model gets tone
+    // and referents "for free"); the current question + excerpts + rules go
+    // in the final user turn.
+    const conversationMessages = [
+      ...(history ?? []).map((h) => ({ role: h.role, content: h.content })),
+      { role: 'user' as const, content: prompt },
+    ];
+
     const aiResponse = await aiProvider.chat({
-      messages: [{ role: 'user', content: prompt }],
+      messages: conversationMessages,
       temperature: settings.temperature,
       maxTokens: settings.maxOutputTokens,
     });
@@ -274,16 +339,19 @@ ${context}
                 vectorRank: c.vector_rank,
                 keywordRank: c.keyword_rank,
                 fusedScore: c.fused_score,
+                rerankScore: reranked ? c.rerank_score : null,
                 used: selectedIds.has(c.id),
                 preview: String(c.content ?? '').slice(0, 240),
               })),
+              reranked,
+              retrievalQuery: retrievalQuery !== question ? retrievalQuery : null,
             }
           : null,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    if (error instanceof EmbeddingError) {
+    if (error instanceof EmbeddingError || error instanceof RerankError) {
       return new Response(JSON.stringify({ error: error.message }), {
         status: error.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
