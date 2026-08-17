@@ -1,0 +1,2 @@
+ALTER TABLE public.document_index ADD COLUMN IF NOT EXISTS ingest_attempts integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_document_index_pending ON public.document_index (user_id, ingest_status, ingest_attempts);

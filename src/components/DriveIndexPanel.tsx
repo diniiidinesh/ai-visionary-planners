@@ -92,28 +92,39 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
     setIndexing(true);
     setProgress({ files: 0, chunks: 0, skipped: 0, failed: 0 });
 
-    let pageToken: string | undefined = undefined;
     let totals: BatchProgress = { files: 0, chunks: 0, skipped: 0, failed: 0 };
-    let retries = 0;
 
     try {
-      // Batches are resumable: keep calling until the function reports done.
-      // One file per invocation server-side, so allow a large number of batches.
-      for (let batch = 0; batch < 3000; batch++) {
+      // Phase 1 — discovery: walk the Drive listing (metadata only) and queue
+      // every file that needs indexing. Cheap, so it pages quickly.
+      let pageToken: string | undefined = undefined;
+      for (let page = 0; page < 200; page++) {
         const { data, error } = await supabase.functions.invoke("ingest-drive-documents", {
-          body: { pageToken, fullResync },
+          body: { mode: "discover", pageToken, fullResync },
+        });
+        if (error) throw new Error((data as any)?.error ?? error.message);
+        if (data.done || !data.nextPageToken) break;
+        pageToken = data.nextPageToken;
+      }
+
+      // Phase 2 — processing: one queued document per invocation. A file heavy
+      // enough to crash the worker is retried server-side and then skipped, so
+      // the rest of the queue still drains.
+      let retries = 0;
+      for (let step = 0; step < 5000; step++) {
+        const { data, error } = await supabase.functions.invoke("ingest-drive-documents", {
+          body: { mode: "process" },
         });
 
         if (error) {
-          const details = (data as any)?.error ?? error.message;
-          // A single batch can hit the function's CPU/time limit on heavy files.
-          // Retry the same page a few times before giving up on the whole run.
-          if (retries < 5) {
+          // Worker resource limits kill the request itself; the attempt was already
+          // recorded server-side, so just call again to move to the next document.
+          if (retries < 8) {
             retries++;
-            await new Promise((r) => setTimeout(r, 1500 * retries));
+            await new Promise((r) => setTimeout(r, 1000 * retries));
             continue;
           }
-          throw new Error(details);
+          throw new Error((data as any)?.error ?? error.message);
         }
         retries = 0;
 
@@ -126,8 +137,6 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
         setProgress(totals);
 
         if (data.done) break;
-        pageToken = data.nextPageToken;
-        if (!pageToken) break;
       }
 
       toast({

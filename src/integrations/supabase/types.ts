@@ -219,6 +219,7 @@ export type Database = {
           folder_path: string | null
           full_url: string | null
           id: string
+          ingest_attempts: number
           ingest_error: string | null
           ingest_status: string
           last_synced: string | null
@@ -244,6 +245,7 @@ export type Database = {
           folder_path?: string | null
           full_url?: string | null
           id?: string
+          ingest_attempts?: number
           ingest_error?: string | null
           ingest_status?: string
           last_synced?: string | null
@@ -269,6 +271,7 @@ export type Database = {
           folder_path?: string | null
           full_url?: string | null
           id?: string
+          ingest_attempts?: number
           ingest_error?: string | null
           ingest_status?: string
           last_synced?: string | null
