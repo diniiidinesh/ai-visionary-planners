@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { getDriveAccessToken, DriveConnectionError, EXPORTABLE_MIME_TYPES, contentUrlFor } from '../_shared/drive/token.ts';
 import { chunkText, hashContent } from '../_shared/rag/chunker.ts';
 import { embedTexts, EMBEDDING_MODEL, EmbeddingError } from '../_shared/rag/embeddings.ts';
+import { extractText, getDocumentProxy } from 'https://esm.sh/unpdf@0.12.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -108,7 +109,15 @@ serve(async (req) => {
           continue;
         }
 
-        const text = (await contentResponse.text()).replace(/\u0000/g, '').trim();
+        let text: string;
+        if (file.mimeType === 'application/pdf') {
+          const buffer = new Uint8Array(await contentResponse.arrayBuffer());
+          const pdf = await getDocumentProxy(buffer);
+          const { text: pdfText } = await extractText(pdf, { mergePages: true });
+          text = String(pdfText).replace(/\u0000/g, '').trim();
+        } else {
+          text = (await contentResponse.text()).replace(/\u0000/g, '').trim();
+        }
         if (!text || text.length < 30) {
           // e.g. scanned PDFs with no extractable text
           await recordStatus(supabase, user.id, file, 'skipped_no_text', 0, null, 'No extractable text');
