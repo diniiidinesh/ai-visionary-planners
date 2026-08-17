@@ -4,13 +4,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 import { getDriveAccessToken, DriveConnectionError, EXPORTABLE_MIME_TYPES, contentUrlFor } from '../_shared/drive/token.ts';
 import { chunkText, hashContent } from '../_shared/rag/chunker.ts';
 import { embedTexts, EMBEDDING_MODEL, EmbeddingError } from '../_shared/rag/embeddings.ts';
+import { extractText, getDocumentProxy } from 'https://esm.sh/unpdf@0.12.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FILES_PER_BATCH = 10;
+const FILES_PER_BATCH = 3;
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -96,6 +98,12 @@ serve(async (req) => {
           continue;
         }
 
+        if (file.size && Number(file.size) > MAX_FILE_BYTES) {
+          await recordStatus(supabase, user.id, file, 'skipped_too_large', 0, null, 'File too large to index');
+          skipped++;
+          continue;
+        }
+
         const contentResponse = await fetch(contentUrlFor(file.id, file.mimeType), {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -108,7 +116,15 @@ serve(async (req) => {
           continue;
         }
 
-        const text = (await contentResponse.text()).replace(/\u0000/g, '').trim();
+        let text: string;
+        if (file.mimeType === 'application/pdf') {
+          const buffer = new Uint8Array(await contentResponse.arrayBuffer());
+          const pdf = await getDocumentProxy(buffer);
+          const { text: pdfText } = await extractText(pdf, { mergePages: true });
+          text = String(pdfText).replace(/\u0000/g, '').trim();
+        } else {
+          text = (await contentResponse.text()).replace(/\u0000/g, '').trim();
+        }
         if (!text || text.length < 30) {
           // e.g. scanned PDFs with no extractable text
           await recordStatus(supabase, user.id, file, 'skipped_no_text', 0, null, 'No extractable text');
