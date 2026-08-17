@@ -431,6 +431,155 @@ export default function AISettings() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle>Retrieval &amp; Generation</CardTitle>
+                  <CardDescription>
+                    Tune how passages are found and how the answer is written. Changes apply to the next
+                    question you ask — no re-indexing needed.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreferences({ ...preferences, ...TUNING_DEFAULTS })}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reset
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>Retrieval mode</Label>
+                <Select
+                  value={preferences.retrievalMode}
+                  onValueChange={(value) =>
+                    setPreferences({ ...preferences, retrievalMode: value as AIPreferences['retrievalMode'] })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hybrid">Hybrid (meaning + keywords)</SelectItem>
+                    <SelectItem value="vector">Meaning only (vector)</SelectItem>
+                    <SelectItem value="keyword">Keywords only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Hybrid finds paraphrases and exact terms (IDs, error codes, product names) and merges
+                  both ranked lists. Keyword-only skips the embedding call entirely.
+                </p>
+              </div>
+
+              <TuningSlider
+                id="temperature"
+                label="Temperature"
+                hint="0 keeps answers literal and repeatable; higher values allow looser phrasing."
+                value={preferences.temperature}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => setPreferences({ ...preferences, temperature: v })}
+              />
+
+              <TuningSlider
+                id="max-output-tokens"
+                label="Max answer length (tokens)"
+                hint="Upper bound on the generated answer. Roughly 1 token ≈ 4 characters."
+                value={preferences.maxOutputTokens}
+                min={256}
+                max={8000}
+                step={128}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, maxOutputTokens: v })}
+              />
+
+              <TuningSlider
+                id="retrieval-top-k"
+                label="Candidates retrieved"
+                hint="How many passages the search stage considers before filtering. Higher = better recall, slower."
+                value={preferences.retrievalTopK}
+                min={5}
+                max={40}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, retrievalTopK: v })}
+              />
+
+              <TuningSlider
+                id="passages-to-model"
+                label="Passages sent to the model"
+                hint="More context can help, but too much dilutes the answer and costs more."
+                value={preferences.passagesToModel}
+                min={1}
+                max={15}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, passagesToModel: v })}
+              />
+
+              <TuningSlider
+                id="min-similarity"
+                label="Minimum relevance"
+                hint="Passages below this similarity are discarded. Raise it if answers cite irrelevant text."
+                value={preferences.minSimilarity}
+                min={0}
+                max={0.5}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => setPreferences({ ...preferences, minSimilarity: v })}
+              />
+
+              <TuningSlider
+                id="max-per-doc"
+                label="Max passages per document"
+                hint="Stops one long document from crowding out every other source."
+                value={preferences.maxPassagesPerDoc}
+                min={1}
+                max={5}
+                step={1}
+                format={(v) => String(v)}
+                onChange={(v) => setPreferences({ ...preferences, maxPassagesPerDoc: v })}
+              />
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="debug-retrieval">Show retrieval debug</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Lists every candidate passage with its scores and whether it made the cut.
+                  </p>
+                </div>
+                <Switch
+                  id="debug-retrieval"
+                  checked={preferences.debugRetrieval}
+                  onCheckedChange={(checked) =>
+                    setPreferences({ ...preferences, debugRetrieval: checked })
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="hidden">
+            <CardHeader>
+              <CardTitle>Legacy</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="sr-only">legacy</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-end">
             <Button onClick={savePreferences} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
