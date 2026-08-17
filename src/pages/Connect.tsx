@@ -113,7 +113,7 @@ const Connect = () => {
 
       const { data, error } = await supabase.functions.invoke('google-drive-oauth-init', {
         body: {
-          returnUrl: `${window.location.origin}/search`,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
           postMessageOrigin: window.location.origin,
         },
       });
