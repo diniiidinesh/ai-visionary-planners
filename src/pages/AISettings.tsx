@@ -10,8 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Info } from "lucide-react";
+import { ArrowLeft, Save, Info, RotateCcw } from "lucide-react";
 
 interface AIPreferences {
   searchProvider: string;
@@ -22,7 +23,26 @@ interface AIPreferences {
   summarizeOrgId?: string;
   enableCostTracking: boolean;
   monthlyBudgetUsd?: number;
+  temperature: number;
+  maxOutputTokens: number;
+  retrievalTopK: number;
+  passagesToModel: number;
+  minSimilarity: number;
+  maxPassagesPerDoc: number;
+  retrievalMode: 'vector' | 'hybrid' | 'keyword';
+  debugRetrieval: boolean;
 }
+
+const TUNING_DEFAULTS = {
+  temperature: 0.3,
+  maxOutputTokens: 2000,
+  retrievalTopK: 20,
+  passagesToModel: 10,
+  minSimilarity: 0.15,
+  maxPassagesPerDoc: 3,
+  retrievalMode: 'hybrid' as const,
+  debugRetrieval: false,
+};
 
 type ProviderStatus = Record<string, { project: boolean; personal: boolean; configured: boolean }>;
 
@@ -55,6 +75,7 @@ export default function AISettings() {
     summarizeProvider: 'lovable',
     summarizeModel: 'google/gemini-2.5-flash',
     enableCostTracking: false,
+    ...TUNING_DEFAULTS,
   });
 
   useEffect(() => {
