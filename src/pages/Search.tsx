@@ -717,6 +717,17 @@ const Search = () => {
                               {(excerpt.similarity * 100).toFixed(0)}% match
                             </span>
                           </div>
+                          {(excerpt.heading || excerpt.author || excerpt.modifiedTime) && (
+                            <p className="mb-1 text-[11px] text-muted-foreground">
+                              {[
+                                excerpt.heading,
+                                excerpt.author,
+                                excerpt.modifiedTime
+                                  ? new Date(excerpt.modifiedTime).toLocaleDateString()
+                                  : null,
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
                           <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
                             {excerpt.content}
                           </p>
