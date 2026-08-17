@@ -8,8 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Info } from "lucide-react";
 
 interface AIPreferences {
   searchProvider: string;
@@ -21,6 +23,8 @@ interface AIPreferences {
   enableCostTracking: boolean;
   monthlyBudgetUsd?: number;
 }
+
+type ProviderStatus = Record<string, { project: boolean; personal: boolean; configured: boolean }>;
 
 const PROVIDERS = [
   { value: 'lovable', label: 'Lovable AI' },
@@ -44,6 +48,7 @@ export default function AISettings() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<ProviderStatus>({});
   const [preferences, setPreferences] = useState<AIPreferences>({
     searchProvider: 'lovable',
     searchModel: 'google/gemini-2.5-flash',
@@ -54,7 +59,41 @@ export default function AISettings() {
 
   useEffect(() => {
     loadPreferences();
+    loadProviderStatus();
   }, []);
+
+  const loadProviderStatus = async () => {
+    const { data, error } = await supabase.functions.invoke('ai-provider-status');
+    if (error) {
+      console.error('Error loading provider status:', error);
+      return;
+    }
+    setProviderStatus(data?.providers ?? {});
+  };
+
+  const providerLabel = (value: string) =>
+    PROVIDERS.find((p) => p.value === value)?.label ?? value;
+
+  const ActiveProvider = ({ provider, model }: { provider: string; model: string }) => {
+    const status = providerStatus[provider];
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Currently in effect:</span>
+        <span className="font-medium">{providerLabel(provider)}</span>
+        <span className="text-muted-foreground">/</span>
+        <span className="font-mono text-xs">{model}</span>
+        {status && (
+          <Badge variant={status.configured ? 'secondary' : 'destructive'}>
+            {status.configured
+              ? status.personal
+                ? 'Your key configured'
+                : 'Project key configured'
+              : 'No key configured'}
+          </Badge>
+        )}
+      </div>
+    );
+  };
 
   const loadPreferences = async () => {
     try {
@@ -148,6 +187,15 @@ export default function AISettings() {
               Configure your AI providers and preferences for search and summarization
             </p>
           </div>
+
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              API keys are managed centrally at the project level, so there is nothing to paste here.
+              Pick the provider and model you want and the app uses the matching key automatically.
+              Document indexing (embeddings) always uses the built-in AI provider.
+            </AlertDescription>
+          </Alert>
 
           <Card>
             <CardHeader>
