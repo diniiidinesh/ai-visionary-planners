@@ -177,6 +177,11 @@ export const LiveRun = () => {
   const run = async () => {
     const q = question.trim();
     if (!q) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      toast.error("Please sign in to run the pipeline.");
+      return;
+    }
     setRunning(true);
     setQuestion("");
     setActiveStage(1);
