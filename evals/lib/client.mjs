@@ -11,35 +11,62 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
 
-/** Reads KEY=VALUE pairs out of the app's .env so we don't duplicate config. */
-function loadDotEnv() {
-  const path = join(repoRoot, '.env');
+/** Parses KEY=VALUE pairs out of a dotenv-style file. Missing file -> {}. */
+function parseEnvFile(path) {
   if (!existsSync(path)) return {};
   const out = {};
   for (const line of readFileSync(path, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (/^\s*#/.test(line)) continue;
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
     if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, '');
   }
   return out;
 }
 
+/**
+ * Config resolution, lowest priority first:
+ *   1. repo .env            — Supabase URL + anon key (shared with the app)
+ *   2. evals/.env.local     — your eval credentials (gitignored)
+ *   3. real environment     — wins, for CI or one-off overrides
+ *
+ * .env.local exists so credentials never have to be typed at a shell prompt.
+ * That avoids per-shell syntax differences, and keeps your password out of
+ * PowerShell/bash history files, which are stored on disk in plain text.
+ */
+function loadConfig() {
+  return {
+    ...parseEnvFile(join(repoRoot, '.env')),
+    ...parseEnvFile(join(here, '..', '.env.local')),
+    ...process.env,
+  };
+}
+
+/** Config for non-Supabase consumers (e.g. the Anthropic key in the generator). */
+export function getConfig() {
+  return loadConfig();
+}
+
 export async function getSupabase() {
-  const env = { ...loadDotEnv(), ...process.env };
+  const env = loadConfig();
   const url = env.VITE_SUPABASE_URL;
   const anonKey = env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   if (!url || !anonKey) {
-    throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY (checked .env and process env).');
+    throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY (checked repo .env, evals/.env.local, and the environment).');
   }
 
   const supabase = createClient(url, anonKey);
 
-  const email = process.env.EVAL_EMAIL;
-  const password = process.env.EVAL_PASSWORD;
+  const email = env.EVAL_EMAIL;
+  const password = env.EVAL_PASSWORD;
   if (!email || !password) {
     throw new Error(
-      'Set EVAL_EMAIL and EVAL_PASSWORD to the account whose indexed corpus you want to evaluate.\n' +
-      'Example: EVAL_EMAIL=you@example.com EVAL_PASSWORD=... npm run eval'
+      'Missing EVAL_EMAIL / EVAL_PASSWORD.\n\n' +
+      'Easiest fix — create evals/.env.local (gitignored) containing:\n' +
+      '  EVAL_EMAIL=you@example.com\n' +
+      '  EVAL_PASSWORD=your-password\n' +
+      '  ANTHROPIC_API_KEY=sk-ant-...   # only needed for generate-golden-set\n\n' +
+      'Then just run:  node run-eval.mjs'
     );
   }
 

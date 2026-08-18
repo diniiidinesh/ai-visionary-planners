@@ -8,7 +8,7 @@
 //          --judge      also run LLM-as-judge faithfulness (needs ANTHROPIC_API_KEY)
 //          --out FILE   write JSON results (default results/<timestamp>.json)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { getSupabase, askRag } from './lib/client.mjs';
+import { getSupabase, askRag, getConfig } from './lib/client.mjs';
 import {
   precisionAtK, recallAtK, reciprocalRank, ndcgAtK, hitAtK,
   mean, pct, citationValidity, isRefusal,
@@ -71,9 +71,10 @@ async function main() {
 
   let anthropic = null;
   if (JUDGE) {
-    if (!process.env.ANTHROPIC_API_KEY) throw new Error('--judge requires ANTHROPIC_API_KEY');
+    const apiKey = getConfig().ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('--judge requires ANTHROPIC_API_KEY (add it to evals/.env.local)');
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    anthropic = new Anthropic();
+    anthropic = new Anthropic({ apiKey });
   }
 
   const results = [];
