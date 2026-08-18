@@ -362,7 +362,11 @@ async function processNext(supabase: any, userId: string, accessToken: string): 
   } catch (fileError) {
     const message = fileError instanceof Error ? fileError.message : 'Unknown error';
     console.error(`❌ Failed to ingest ${file.name}:`, message);
-    if (fileError instanceof EmbeddingError && (fileError.status === 402 || fileError.status === 429)) {
+    // 402/429 = out of credits or rate-limited. 403 also lands here because
+    // Lovable's AI Gateway reports an exhausted workspace credit pool as 403
+    // credit_limit_reached, not 402 — same "stop, don't burn through the rest
+    // of the batch" condition, different status code.
+    if (fileError instanceof EmbeddingError && (fileError.status === 402 || fileError.status === 429 || fileError.status === 403)) {
       // Give the file its attempt back — this failure is not the file's fault.
       await supabase
         .from('document_index')

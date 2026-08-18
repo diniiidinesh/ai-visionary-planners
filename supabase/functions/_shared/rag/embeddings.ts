@@ -59,6 +59,15 @@ async function embedBatchOpenAI(inputs: string[]): Promise<number[][]> {
     console.error(`Embedding request failed [${response.status}]: ${body}`);
     if (response.status === 429) throw new EmbeddingError('Rate limited by the AI gateway. Please retry shortly.', 429);
     if (response.status === 402) throw new EmbeddingError('AI credits exhausted. Please top up to continue indexing.', 402);
+    // Lovable's AI Gateway reports an exhausted workspace credit pool as 403
+    // credit_limit_reached, not 402 — same underlying condition, different
+    // status code than the OpenAI-style 402 case above.
+    if (response.status === 403 && body.includes('credit_limit_reached')) {
+      throw new EmbeddingError(
+        'Lovable AI Gateway workspace credit limit reached. Ask the workspace owner to raise the limit in Lovable billing settings, or try again once it resets.',
+        403
+      );
+    }
     throw new EmbeddingError(`Embedding request failed: ${body}`, response.status);
   }
 
