@@ -1,0 +1,14 @@
+{
+  "name": "rag-evals",
+  "private": true,
+  "type": "module",
+  "description": "Offline evaluation harness for the RAG pipeline. Separate from the app build.",
+  "scripts": {
+    "generate": "node generate-golden-set.mjs",
+    "eval": "node run-eval.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@supabase/supabase-js": "^2.75.0"
+  }
+}
