@@ -311,6 +311,37 @@ async function processNext(supabase: any, userId: string, accessToken: string): 
     }
 
     const contentHash = await hashContent(text);
+
+    // Cross-document dedup: another Drive file already indexed with the exact
+    // same extracted text (a copy, a re-share, an export duplicate) shouldn't
+    // get its own embeddings — it would just show up as a second hit for
+    // every query the original answers, diluting retrieval. content_hash was
+    // already being stored per-file for change detection; this is the first
+    // place it's compared *across* files.
+    const { data: existingDuplicate } = await supabase
+      .from('document_index')
+      .select('source_id, title')
+      .eq('user_id', userId)
+      .eq('content_hash', contentHash)
+      .eq('ingest_status', 'indexed')
+      .neq('source_id', file.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingDuplicate) {
+      await supabase
+        .from('document_chunks')
+        .delete()
+        .eq('user_id', userId)
+        .eq('source_type', 'google_drive')
+        .eq('source_id', file.id);
+      await recordStatus(supabase, userId, file, meta, 'duplicate', 0, contentHash,
+        `Duplicate of "${existingDuplicate.title}" (identical content) — not indexed separately`);
+      result.skipped++;
+      console.log(`⏭️  "${file.name}" is a duplicate of "${existingDuplicate.title}", skipping`);
+      return json({ mode: 'process', done: false, remaining: Math.max((remaining ?? 1) - 1, 0), title: file.name, ...result });
+    }
+
     const chunks = chunkText(text, CHUNK_SIZE, CHUNK_OVERLAP);
     const inputs = chunks.map((c) => embeddingInput(file.name, c.heading, c.content));
     const embeddings = await embedTexts(inputs, 'openai');
