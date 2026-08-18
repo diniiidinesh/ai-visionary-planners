@@ -3,10 +3,19 @@
 //
 //   EVAL_EMAIL=... EVAL_PASSWORD=... node run-eval.mjs
 //
-// Options: --set FILE   golden set (default golden-set.json)
-//          --k N        cutoff for @k metrics (default 10 = passagesToModel)
-//          --judge      also run LLM-as-judge faithfulness (needs ANTHROPIC_API_KEY)
-//          --out FILE   write JSON results (default results/<timestamp>.json)
+// Options: --set FILE        golden set (default golden-set.json)
+//          --k N             cutoff for @k metrics (default 10 = passagesToModel)
+//          --judge           also run LLM-as-judge faithfulness (needs ANTHROPIC_API_KEY)
+//          --out FILE        write JSON results (default results/<timestamp>.json)
+//          --embedding SPACE 'openai' or 'voyage' — forces which embedding
+//                            space rag-answer uses for this run. Omit to use
+//                            whatever the account's saved AI Settings
+//                            preference is (defaults to 'openai' server-side
+//                            if nothing was ever saved there).
+//
+// To compare embedding spaces, run twice with different --out files:
+//   node run-eval.mjs --embedding openai --out results/openai.json
+//   node run-eval.mjs --embedding voyage --out results/voyage.json
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { getSupabase, askRag, getConfig } from './lib/client.mjs';
 import {
@@ -20,6 +29,10 @@ const SET = argVal('--set', 'golden-set.json');
 const K = Number(argVal('--k', 10));
 const JUDGE = args.includes('--judge');
 const OUT = argVal('--out', `results/${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+const EMBEDDING = argVal('--embedding', null);
+if (EMBEDDING && !['openai', 'voyage'].includes(EMBEDDING)) {
+  throw new Error(`--embedding must be 'openai' or 'voyage', got '${EMBEDDING}'`);
+}
 
 const MODEL = 'claude-opus-5';
 
@@ -67,7 +80,8 @@ async function main() {
   }
 
   const { supabase, email } = await getSupabase();
-  console.log(`Signed in as ${email}. Running ${golden.cases.length} cases (k=${K})...\n`);
+  console.log(`Signed in as ${email}. Running ${golden.cases.length} cases (k=${K})...`);
+  console.log(`Embedding space: ${EMBEDDING ? `${EMBEDDING} (forced via --embedding)` : "account's saved AI Settings preference (defaults to 'openai' if never set)"}\n`);
 
   let anthropic = null;
   if (JUDGE) {
@@ -80,7 +94,10 @@ async function main() {
   const results = [];
   for (const c of golden.cases) {
     const started = Date.now();
-    const res = await askRag(supabase, c.question, { history: c.history ?? [] });
+    const res = await askRag(supabase, c.question, {
+      history: c.history ?? [],
+      ...(EMBEDDING ? { embeddingProvider: EMBEDDING } : {}),
+    });
     const latencyMs = Date.now() - started;
 
     if (res?.error) {
@@ -108,6 +125,13 @@ async function main() {
       citations: citationValidity(answer, excerpts.length),
       retrieval: {
         candidateCount: candidates.length,
+        // What rag-answer ACTUALLY used this call, per its own response —
+        // never inferred or assumed. embeddingFallback is set when 'voyage'
+        // was requested but the account has no Voyage-embedded index yet (or
+        // no VOYAGE_API_KEY), in which case the server silently used openai.
+        embeddingSpace: res.retrieval?.embeddingSpace ?? null,
+        embeddingModel: res.retrieval?.embeddingModel ?? null,
+        embeddingFallback: res.retrieval?.embeddingFallback ?? null,
         keywordQueries: res.retrieval?.keywordQueries ?? null,
         retrievalQuery: res.retrieval?.retrievalQuery ?? null,
         reranked: res.retrieval?.reranked ?? false,
@@ -150,10 +174,18 @@ async function main() {
   const guard = results.filter((r) => r.type !== 'answerable' && !r.error);
   const errored = results.filter((r) => r.error);
 
+  // Distinct embedding spaces actually reported by rag-answer across all
+  // calls. Should be exactly one value — if it's more, settings changed
+  // mid-run (e.g. someone edited AI Settings while this was running).
+  const embeddingSpacesSeen = [...new Set(results.map((r) => r.retrieval?.embeddingSpace).filter(Boolean))];
+  const embeddingFallbacks = results.filter((r) => r.retrieval?.embeddingFallback);
+
   const summary = {
     ranAt: new Date().toISOString(),
     account: email,
     k: K,
+    embeddingSpacesSeen,
+    embeddingFallbackCount: embeddingFallbacks.length,
     caseCounts: { answerable: answerable.length, guardrail: guard.length, errored: errored.length },
     retrieval: {
       precisionAtK: mean(answerable.map((r) => r.metrics?.precisionAtK)),
@@ -203,7 +235,16 @@ async function main() {
   writeFileSync(OUT, JSON.stringify({ summary, results }, null, 2));
 
   const R = summary.retrieval, A = summary.answerQuality, G = summary.guardrails;
-  console.log('════════ RETRIEVAL ════════');
+  console.log(`════════ EMBEDDING SPACE: ${embeddingSpacesSeen.join(', ') || 'unknown'} ════════`);
+  if (embeddingSpacesSeen.length > 1) {
+    console.log('  ⚠️  More than one embedding space appeared across this run — results are not comparable to');
+    console.log('      a single-space baseline. Did AI Settings change mid-run?');
+  }
+  if (embeddingFallbacks.length > 0) {
+    console.log(`  ⚠️  ${embeddingFallbacks.length} case(s) requested 'voyage' but fell back to 'openai':`);
+    console.log(`      "${embeddingFallbacks[0].retrieval.embeddingFallback}"`);
+  }
+  console.log('\n════════ RETRIEVAL ════════');
   console.log(`  Hit@${K}          ${pct(R.hitRateAtK)}   (at least one correct doc retrieved)`);
   console.log(`  Recall@${K}       ${pct(R.recallAtK)}   (share of expected docs found)`);
   console.log(`  Precision@${K}    ${pct(R.precisionAtK)}   (share of retrieved that were relevant)`);

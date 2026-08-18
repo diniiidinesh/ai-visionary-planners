@@ -75,12 +75,24 @@ export async function getSupabase() {
   return { supabase, userId: data.user.id, email };
 }
 
-/** Calls the deployed rag-answer edge function with debug retrieval forced on. */
-export async function askRag(supabase, question, { history = [], topK } = {}) {
+/**
+ * Calls the deployed rag-answer edge function with debug retrieval forced on.
+ *
+ * `embeddingProvider` ('openai' | 'voyage') is passed through explicitly so a
+ * report never has to guess which embedding space produced it. Omit it to use
+ * whatever the account's saved AI Settings preference is (defaults to
+ * 'openai' server-side if nothing was ever saved) — but for a real
+ * side-by-side comparison, run once with each value set explicitly.
+ */
+export async function askRag(supabase, question, { history = [], topK, embeddingProvider } = {}) {
   const body = {
     question,
     history,
-    overrides: { debugRetrieval: true, ...(topK ? { retrievalTopK: topK } : {}) },
+    overrides: {
+      debugRetrieval: true,
+      ...(topK ? { retrievalTopK: topK } : {}),
+      ...(embeddingProvider ? { embeddingProvider } : {}),
+    },
   };
   const { data, error } = await supabase.functions.invoke('rag-answer', { body });
   if (error) return { error: error.message ?? String(error) };
