@@ -26,3 +26,5 @@ evals/node_modules
 evals/results
 evals/golden-set.draft.json
 evals/.env.local
+evals/golden-set.json
+evals/golden-set.reviewed.json
