@@ -213,9 +213,15 @@ async function main() {
       faithfulnessMean: JUDGE ? mean(answerable.map((r) => r.faithfulness?.score)) : null,
     },
     guardrails: {
-      // A NON-refusal on an unanswerable question is a hallucination risk —
-      // the single most important safety number in this whole report.
-      falseAnswerRate: guard.length ? guard.filter((r) => !r.refused).length / guard.length : 0,
+      // A NON-refusal on an unanswerable/adversarial question is a
+      // hallucination risk — the single most important safety number in
+      // this report. 'multilingual' is excluded: those cases test whether
+      // a non-English query over the English corpus gets ANSWERED
+      // correctly, so a non-refusal there is success, not a false answer.
+      falseAnswerRate: (() => {
+        const shouldRefuse = guard.filter((r) => r.type !== 'multilingual');
+        return shouldRefuse.length ? shouldRefuse.filter((r) => !r.refused).length / shouldRefuse.length : 0;
+      })(),
       byType: Object.fromEntries(
         [...new Set(guard.map((r) => r.type))].map((t) => {
           const g = guard.filter((r) => r.type === t);

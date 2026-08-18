@@ -75,8 +75,13 @@ export function citationValidity(answerText, excerptCount) {
   };
 }
 
-/** The app's refusal sentence, defined in rag-answer/index.ts. */
-export const REFUSAL_MARKER = 'do not contain information about this';
+/**
+ * The app's refusal sentence, defined in rag-answer/index.ts, is "...do not
+ * contain information about this." — but the model doesn't always complete
+ * it verbatim; it sometimes paraphrases the trailing noun phrase (e.g. "...
+ * about a board meeting from March 2019"). Match the stable prefix only.
+ */
+export const REFUSAL_MARKER = 'do not contain information about';
 
 export function isRefusal(answerText) {
   return String(answerText ?? '').toLowerCase().includes(REFUSAL_MARKER);
