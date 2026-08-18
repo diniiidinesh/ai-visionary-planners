@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+evals/node_modules
+evals/results
+evals/golden-set.draft.json
