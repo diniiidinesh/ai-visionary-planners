@@ -121,6 +121,7 @@ async function main() {
       latencyMs,
       refused: isRefusal(answer),
       answerChars: answer.length,
+      answer, // kept in full for debugging - which is often the whole point of a re-run
       excerptCount: excerpts.length,
       citations: citationValidity(answer, excerpts.length),
       retrieval: {
