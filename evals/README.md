@@ -133,8 +133,8 @@ need chunk-level truth, add a stable `chunk_uid` at ingest time and record it in
 ```bash
 cd evals
 npm install
-EVAL_EMAIL=you@example.com EVAL_PASSWORD='...' ANTHROPIC_API_KEY=sk-ant-... \
-  node generate-golden-set.mjs --per-doc 3
+cp .env.local.example .env.local     # then edit it with your credentials
+node generate-golden-set.mjs --per-doc 3
 ```
 
 This reads your indexed chunks (RLS means you see exactly your own), samples
@@ -189,12 +189,28 @@ produce answerable ones. Add by hand:
 
 ## 5. Running it
 
-```bash
-EVAL_EMAIL=you@example.com EVAL_PASSWORD='...' node run-eval.mjs
+**Set up credentials once** — copy `.env.local.example` to `.env.local` and fill
+it in. That file is gitignored, works identically on PowerShell / bash / zsh, and
+keeps your password out of shell history files (which are stored on disk in
+plain text).
+
+```
+EVAL_EMAIL=you@example.com
+EVAL_PASSWORD=your-password
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Add `--judge` (with `ANTHROPIC_API_KEY`) for LLM-scored faithfulness. Without
-it you still get every deterministic metric — which is most of them.
+Then simply:
+
+```bash
+node run-eval.mjs
+```
+
+Real environment variables still override the file, so CI can inject secrets
+without touching it.
+
+Add `--judge` for LLM-scored faithfulness. Without it you still get every
+deterministic metric — which is most of them.
 
 ```bash
 node run-eval.mjs --set golden-set.seed.json   # smoke test the harness first
@@ -347,5 +363,6 @@ good?" — but the specific things worth saying:
 | `run-eval.mjs` | Runs the set, computes metrics, writes `results/` |
 | `lib/metrics.mjs` | Precision / recall / MRR / NDCG / citation validity |
 | `lib/client.mjs` | Auth + `rag-answer` invocation |
+| `.env.local.example` | Template for your credentials — copy to `.env.local` (gitignored) |
 | `golden-set.seed.json` | 10 hand-seeded cases — smoke test only, see its `provenance` field |
 | `chunker-probe.mjs` | Reproduces the chunker findings in §8 of the chunking review |
