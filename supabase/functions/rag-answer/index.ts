@@ -16,6 +16,7 @@ import {
 import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
 import { rerank, RerankError } from '../_shared/rag/reranker.ts';
 import { planQuery } from '../_shared/rag/query-planner.ts';
+import { buildCorpusProfile, renderCorpusContext } from '../_shared/rag/corpus-overview.ts';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -182,6 +183,99 @@ serve(async (req) => {
     const plan = await planQuery(planProvider, question, history ?? []);
     const retrievalQuery = plan.standaloneQuestion;
 
+    // Corpus-level questions ("what's in my Drive?") are answered from the
+    // catalog, not from retrieved passages — top-k retrieval would show the
+    // model a handful of documents and let it describe them as the whole
+    // collection. Falls through to normal retrieval if the catalog is empty,
+    // so an orphaned-chunks state can't produce a description of nothing.
+    if (plan.intent === 'corpus_overview') {
+      const profile = await buildCorpusProfile(supabase, user.id, 'google_drive');
+
+      if (profile.totalDocuments > 0) {
+        const overviewProvider = AIProviderFactory.create(await configManager.getProviderConfig('summarize'));
+
+        const overviewPrompt = `You are describing the contents of the user's indexed document collection.
+
+**Question**: ${question}
+
+**Catalog data** (exact counts queried from the index, not estimates):
+${renderCorpusContext(profile)}
+
+**Instructions**:
+1. Answer using ONLY the catalog data above. Every number you state must appear there — never estimate or extrapolate.
+2. Lead with the direct answer to what was asked (a count, the file types, the folders), then add the useful supporting detail.
+3. If the document listing is marked PARTIAL, say so explicitly and state how many documents it covers out of the total. Never present a partial list as complete.
+4. This data describes the documents as FILES — names, types, folders, sizes, dates. It does NOT say what they contain. If the question asks what the documents say or which topics they cover, answer what you can from names and folders, then state plainly that determining actual subject matter would require reading the documents themselves.
+5. Group and summarise rather than dumping the raw list — mention notable or representative documents by name instead of listing everything.
+6. Aim for 150-300 words, using **bold** for key figures and bullets for breakdowns.
+7. End with one of: ✅ **High Confidence**, ⚠️ **Medium Confidence**, or ❌ **Low Confidence**.`;
+
+        const overviewResponse = await overviewProvider.chat({
+          messages: [{ role: 'user' as const, content: overviewPrompt }],
+          temperature: settings.temperature,
+          maxTokens: settings.maxOutputTokens,
+        });
+
+        const overviewTime = Date.now() - startTime;
+        if (!overviewResponse.content) throw new Error('No answer generated from AI service');
+
+        const { error: overviewLogError } = await supabase.from('ai_usage_logs').insert({
+          user_id: user.id,
+          provider: overviewResponse.provider,
+          model: overviewResponse.model,
+          purpose: 'rag_corpus_overview',
+          prompt_tokens: overviewResponse.usage?.promptTokens ?? null,
+          completion_tokens: overviewResponse.usage?.completionTokens ?? null,
+          total_tokens: overviewResponse.usage?.totalTokens ?? null,
+          response_time_ms: overviewTime,
+        });
+        if (overviewLogError) console.error('Error logging AI usage:', overviewLogError.message);
+
+        return new Response(
+          JSON.stringify({
+            summary: overviewResponse.content,
+            answerMode: 'corpus_overview',
+            sources: profile.documents.map((d) => ({
+              id: d.sourceId,
+              name: d.title,
+              url: d.url,
+              mimeType: d.fileType,
+              author: null,
+              modifiedTime: d.modifiedTime,
+              topSimilarity: null,
+            })),
+            excerpts: [],
+            chunksUsed: 0,
+            model: `${overviewResponse.provider}/${overviewResponse.model}`,
+            settings,
+            staleDocuments: staleDocuments ?? 0,
+            corpus: {
+              totalDocuments: profile.totalDocuments,
+              indexedDocuments: profile.indexedDocuments,
+              totalChunks: profile.totalChunks,
+              listingTruncated: profile.listingTruncated,
+              statsComplete: profile.statsComplete,
+            },
+            retrieval: settings.debugRetrieval
+              ? {
+                  intent: plan.intent,
+                  // No embedding, search or rerank runs on this path.
+                  mode: null,
+                  embeddingSpace: null,
+                  candidates: [],
+                  reranked: false,
+                  retrievalQuery: retrievalQuery !== question ? retrievalQuery : null,
+                  keywordQueries: null,
+                }
+              : null,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.warn('corpus_overview intent but the catalog is empty — falling back to retrieval.');
+    }
+
     const weights = weightsFor(settings.retrievalMode);
     const activeDims = embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_DIMENSIONS : EMBEDDING_DIMENSIONS;
     const queryEmbedding = weights.vector > 0
@@ -215,6 +309,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           summary: '❌ The indexed documents do not contain information about this.',
+          answerMode: 'lookup',
           sources: [],
           chunksUsed: 0,
           settings,
@@ -342,6 +437,7 @@ ${context}
     return new Response(
       JSON.stringify({
         summary: aiResponse.content,
+        answerMode: 'lookup',
         sources,
         excerpts: selected.map((c, i) => ({
           ref: i + 1,
@@ -359,6 +455,7 @@ ${context}
         staleDocuments: staleDocuments ?? 0,
         retrieval: settings.debugRetrieval
           ? {
+              intent: plan.intent,
               mode: settings.retrievalMode,
               embeddingSpace,
               embeddingModel: embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_MODEL : EMBEDDING_MODEL,
