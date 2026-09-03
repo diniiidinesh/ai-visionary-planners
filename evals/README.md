@@ -221,6 +221,50 @@ node run-eval.mjs --judge                      # + faithfulness scoring
 Results are written to `results/<timestamp>.json`. Keep them — the point is the
 trend across changes, not any single run.
 
+### First-time setup on macOS
+
+```bash
+# Node 18+ (ships with fetch, which the harness relies on)
+node --version || brew install node
+
+cd evals
+npm install
+cp .env.local.example .env.local
+open -e .env.local          # fill in EVAL_EMAIL / EVAL_PASSWORD, save, close
+node run-eval.mjs --set golden-set.seed.json
+```
+
+No shell-syntax differences to worry about: credentials come from `.env.local`,
+not from `export` lines, so the same commands work in zsh, bash and PowerShell.
+
+### Routing regression set
+
+`golden-set.routing.json` tests one thing: does a question get sent down the
+right path — retrieval, or the document catalog? It is **corpus-agnostic and
+committed to the repo**, because unlike the content golden sets no case quotes
+or depends on any document. It works against any account.
+
+```bash
+node run-eval.mjs --set golden-set.routing.json --out results/routing.json
+```
+
+Read the `ROUTING` block. `routingAccuracy` must be **1.0**:
+
+- The `c00*` cases must route to `corpus_overview`. For these the harness also
+  checks the stated document count against a direct `COUNT(*)` on the database —
+  this path has one exact right answer, so it is graded exactly.
+- The `r00*` cases must route to `lookup`. **These are the important half.**
+  They are lookups that *sound* like catalog questions ("which documents mention
+  pricing?", "how many people are mentioned in my notes?"), and they are what
+  catches an over-eager classifier. A misroute here is worse than the bug this
+  feature fixed, because it breaks questions that used to work.
+
+Run it after any change to the query-planner prompt — that prompt is on the path
+of *every* question, so a tweak intended to help routing can quietly degrade
+standalone-question rewriting for everything else. For that, re-run the main set
+too and compare against the previous run.
+
+
 ### Deterministic vs judged
 
 As much as possible is measured **without** an LLM judge, because judges are

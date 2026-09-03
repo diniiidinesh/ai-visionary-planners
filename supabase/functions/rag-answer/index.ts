@@ -48,6 +48,12 @@ const RagAnswerSchema = z.object({
     retrievalMode: z.enum(['vector', 'hybrid', 'keyword']).optional(),
     embeddingProvider: z.enum(['openai', 'voyage']).optional(),
     debugRetrieval: z.boolean().optional(),
+    // Forces the answering path instead of trusting the planner's
+    // classification. Two jobs: a kill switch if routing ever misbehaves in
+    // production (pin every request to 'lookup' without a redeploy), and a way
+    // for evals to exercise the catalog path deterministically rather than
+    // depending on the classifier being right that run.
+    intent: z.enum(['lookup', 'corpus_overview']).optional(),
   }).optional(),
 });
 
@@ -62,6 +68,9 @@ const DEFAULTS = {
   embeddingProvider: 'openai' as const,
   debugRetrieval: false,
 };
+
+/** Documents returned as `sources` on a corpus answer. See the corpus branch. */
+const CORPUS_SOURCES_SHOWN = 12;
 
 /** RRF weights per retrieval mode. */
 function weightsFor(mode: string): { vector: number; keyword: number } {
@@ -188,7 +197,9 @@ serve(async (req) => {
     // model a handful of documents and let it describe them as the whole
     // collection. Falls through to normal retrieval if the catalog is empty,
     // so an orphaned-chunks state can't produce a description of nothing.
-    if (plan.intent === 'corpus_overview') {
+    const effectiveIntent = overrides?.intent ?? plan.intent;
+
+    if (effectiveIntent === 'corpus_overview') {
       const profile = await buildCorpusProfile(supabase, user.id, 'google_drive');
 
       if (profile.totalDocuments > 0) {
@@ -236,7 +247,12 @@ ${renderCorpusContext(profile)}
           JSON.stringify({
             summary: overviewResponse.content,
             answerMode: 'corpus_overview',
-            sources: profile.documents.map((d) => ({
+            // Capped well below the listing the model saw. Search.tsx renders
+            // every source as a chip with a relevance score, and a corpus
+            // question can match hundreds of documents at no relevance at all —
+            // the answer already carries the real totals, so flooding the UI
+            // with 100 zero-percent chips would be noise, not provenance.
+            sources: profile.documents.slice(0, CORPUS_SOURCES_SHOWN).map((d) => ({
               id: d.sourceId,
               name: d.title,
               url: d.url,
@@ -259,7 +275,9 @@ ${renderCorpusContext(profile)}
             },
             retrieval: settings.debugRetrieval
               ? {
-                  intent: plan.intent,
+                  intent: effectiveIntent,
+                  classifiedIntent: plan.intent,
+                  intentForced: overrides?.intent != null,
                   // No embedding, search or rerank runs on this path.
                   mode: null,
                   embeddingSpace: null,
@@ -456,7 +474,9 @@ ${context}
         staleDocuments: staleDocuments ?? 0,
         retrieval: settings.debugRetrieval
           ? {
-              intent: plan.intent,
+              intent: effectiveIntent,
+              classifiedIntent: plan.intent,
+              intentForced: overrides?.intent != null,
               mode: settings.retrievalMode,
               embeddingSpace,
               embeddingModel: embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_MODEL : EMBEDDING_MODEL,

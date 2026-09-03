@@ -83,8 +83,16 @@ export async function getSupabase() {
  * whatever the account's saved AI Settings preference is (defaults to
  * 'openai' server-side if nothing was ever saved) — but for a real
  * side-by-side comparison, run once with each value set explicitly.
+ *
+ * `intent` ('lookup' | 'corpus_overview') forces the answering path instead of
+ * letting the planner classify. Leave it unset for routing cases — the whole
+ * point of those is to measure whether classification lands correctly.
  */
-export async function askRag(supabase, question, { history = [], topK, embeddingProvider } = {}) {
+export async function askRag(
+  supabase,
+  question,
+  { history = [], topK, embeddingProvider, intent } = {}
+) {
   const body = {
     question,
     history,
@@ -92,9 +100,35 @@ export async function askRag(supabase, question, { history = [], topK, embedding
       debugRetrieval: true,
       ...(topK ? { retrievalTopK: topK } : {}),
       ...(embeddingProvider ? { embeddingProvider } : {}),
+      ...(intent ? { intent } : {}),
     },
   };
   const { data, error } = await supabase.functions.invoke('rag-answer', { body });
   if (error) return { error: error.message ?? String(error) };
   return data;
+}
+
+/**
+ * Counts read straight from the database, for grading corpus-overview answers.
+ *
+ * Retrieval questions have no single correct answer, so they're scored with
+ * ranking metrics. Corpus questions DO have one — "how many documents" has an
+ * exact answer — so they get graded against the database instead of against a
+ * number hardcoded into the golden set, which would go stale the moment the
+ * corpus changes.
+ */
+export async function getCorpusGroundTruth(supabase, userId, sourceType = 'google_drive') {
+  const [{ count: totalDocuments }, { count: indexedDocuments }, { count: chunks }] = await Promise.all([
+    supabase.from('document_index').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('source_type', sourceType),
+    supabase.from('document_index').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('source_type', sourceType).eq('ingest_status', 'indexed'),
+    supabase.from('document_chunks').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('source_type', sourceType),
+  ]);
+  return {
+    totalDocuments: totalDocuments ?? 0,
+    indexedDocuments: indexedDocuments ?? 0,
+    searchableChunks: chunks ?? 0,
+  };
 }
