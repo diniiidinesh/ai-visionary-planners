@@ -15,7 +15,7 @@
 //           --out FILE    output path (default golden-set.draft.json)
 import Anthropic from '@anthropic-ai/sdk';
 import { writeFileSync } from 'node:fs';
-import { getSupabase } from './lib/client.mjs';
+import { getSupabase, getConfig } from './lib/client.mjs';
 
 const args = process.argv.slice(2);
 const argVal = (flag, fallback) => {
@@ -33,8 +33,12 @@ function parseJson(text) {
 }
 
 async function main() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is required to draft questions.');
+  const apiKey = getConfig().ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      'ANTHROPIC_API_KEY is required to draft questions.\n' +
+      'Add it to evals/.env.local:  ANTHROPIC_API_KEY=sk-ant-...'
+    );
   }
   const { supabase, email } = await getSupabase();
   console.log(`Signed in as ${email}`);
@@ -54,7 +58,7 @@ async function main() {
   }
   console.log(`Found ${chunks.length} chunks across ${byDoc.size} documents.\n`);
 
-  const anthropic = new Anthropic();
+  const anthropic = new Anthropic({ apiKey });
   const cases = [];
   let n = 0;
 
