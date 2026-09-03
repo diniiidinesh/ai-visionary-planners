@@ -31,7 +31,10 @@ export interface CorpusProfile {
   /** Exact count of catalog rows for this user, whatever their ingest status. */
   totalDocuments: number;
   indexedDocuments: number;
-  totalChunks: number;
+  /** Chunk total according to the catalog's own per-document bookkeeping. */
+  catalogChunks: number;
+  /** Chunk rows that actually exist and are actually searchable. Ground truth. */
+  searchableChunks: number;
   byFileType: { label: string; count: number }[];
   byFolder: { label: string; count: number }[];
   byStatus: { label: string; count: number }[];
@@ -42,6 +45,18 @@ export interface CorpusProfile {
   listingTruncated: boolean;
   /** False when the corpus exceeds PROFILE_ROW_LIMIT, so breakdowns cover only part of it. */
   statsComplete: boolean;
+  /**
+   * True when searchable chunks exist but the catalog doesn't account for them.
+   *
+   * The catalog gained its bookkeeping columns (`ingest_status`, `chunk_count`,
+   * `folder_path`) in later migrations, which backfilled existing rows with
+   * defaults — `ingest_status = 'pending'`, `chunk_count = 0`. So a document
+   * indexed by an older build is fully searchable while its catalog row claims
+   * it was never indexed. Reporting the catalog's view alone would tell that
+   * user their Drive is empty when search plainly works, so the profile carries
+   * both numbers and this flag says when they disagree.
+   */
+  catalogStale: boolean;
 }
 
 const MIME_LABELS: Record<string, string> = {
@@ -95,6 +110,14 @@ export async function buildCorpusProfile(
     .eq('user_id', userId)
     .eq('source_type', sourceType);
 
+  // Ground truth for "how much is actually searchable", independent of whatever
+  // the catalog's bookkeeping columns happen to say.
+  const { count: searchableChunks } = await supabase
+    .from('document_chunks')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('source_type', sourceType);
+
   const { data: rows, error } = await supabase
     .from('document_index')
     .select('source_id, title, folder_path, chunk_count, ingest_status, source_modified_time, full_url, metadata')
@@ -113,7 +136,13 @@ export async function buildCorpusProfile(
     .filter((t): t is string => typeof t === 'string' && !!t)
     .sort();
 
-  const documents: CorpusDocument[] = indexed.slice(0, MAX_LISTED_DOCUMENTS).map((r) => ({
+  // Normally we list what the catalog calls indexed. When nothing is marked
+  // indexed but chunks exist (a pre-bookkeeping catalog), listing the indexed
+  // set would show the user an empty Drive they can visibly search — so fall
+  // back to listing every catalog row and let the staleness note explain it.
+  const listable = indexed.length > 0 ? indexed : all;
+
+  const documents: CorpusDocument[] = listable.slice(0, MAX_LISTED_DOCUMENTS).map((r) => ({
     sourceId: r.source_id,
     title: r.title,
     folderPath: r.folder_path ?? null,
@@ -123,18 +152,26 @@ export async function buildCorpusProfile(
     url: r.full_url ?? null,
   }));
 
+  const catalogChunks = indexed.reduce((sum, r) => sum + (r.chunk_count ?? 0), 0);
+  const chunkRows = searchableChunks ?? 0;
+
   return {
     totalDocuments: totalDocuments ?? all.length,
     indexedDocuments: indexed.length,
-    totalChunks: indexed.reduce((sum, r) => sum + (r.chunk_count ?? 0), 0),
+    catalogChunks,
+    searchableChunks: chunkRows,
     byFileType: tally(indexed.map((r) => fileTypeLabel(r.metadata?.mimeType))),
-    byFolder: tally(indexed.map((r) => r.folder_path || 'My Drive (root)')),
+    byFolder: tally(indexed.map((r) => r.folder_path || '(folder not recorded)')),
     byStatus: tally(all.map((r) => String(r.ingest_status ?? 'unknown'))),
     oldestModified: modifiedTimes[0] ?? null,
     newestModified: modifiedTimes[modifiedTimes.length - 1] ?? null,
     documents,
-    listingTruncated: indexed.length > MAX_LISTED_DOCUMENTS,
+    listingTruncated: listable.length > MAX_LISTED_DOCUMENTS,
     statsComplete: all.length < PROFILE_ROW_LIMIT,
+    // Searchable content the catalog can't account for: rows written before the
+    // bookkeeping columns existed report 'pending' / 0 chunks forever, until the
+    // document is re-ingested.
+    catalogStale: chunkRows > 0 && (indexed.length === 0 || catalogChunks === 0),
   };
 }
 
@@ -156,10 +193,18 @@ function dateOnly(iso: string | null): string | null {
 export function renderCorpusContext(profile: CorpusProfile): string {
   const lines: string[] = [];
 
-  lines.push('CORPUS SUMMARY (exact counts from the document catalog):');
+  lines.push('CORPUS SUMMARY (exact counts, queried live):');
   lines.push(`- Documents in the catalog: ${profile.totalDocuments}`);
-  lines.push(`- Successfully indexed and searchable: ${profile.indexedDocuments}`);
-  lines.push(`- Total passages (chunks) indexed: ${profile.totalChunks}`);
+  lines.push(`- Catalog rows marked successfully indexed: ${profile.indexedDocuments}`);
+  lines.push(`- Searchable passages actually in the index: ${profile.searchableChunks}`);
+
+  if (profile.catalogStale) {
+    lines.push('');
+    lines.push('IMPORTANT — THE CATALOG IS OUT OF DATE:');
+    lines.push(
+      `There are ${profile.searchableChunks} searchable passages in the index, but the catalog records only ${profile.indexedDocuments} document(s) as indexed and ${profile.catalogChunks} passage(s). These documents were indexed by an earlier version of the ingest pipeline that did not record per-document status, so the catalog understates what is actually searchable. Treat the ${profile.totalDocuments} catalog documents and ${profile.searchableChunks} passages as the real figures, say that per-document details (status, folders, sizes) are incomplete for these older documents, and recommend re-running the Drive index to refresh them.`
+    );
+  }
 
   if (profile.oldestModified || profile.newestModified) {
     lines.push(
@@ -182,10 +227,11 @@ export function renderCorpusContext(profile: CorpusProfile): string {
   for (const f of profile.byFolder) lines.push(`- ${f.label}: ${f.count}`);
 
   lines.push('');
+  const listedOf = profile.indexedDocuments > 0 ? profile.indexedDocuments : profile.totalDocuments;
   lines.push(
     profile.listingTruncated
-      ? `DOCUMENT LISTING — the ${profile.documents.length} largest of ${profile.indexedDocuments} indexed documents (THIS LIST IS PARTIAL):`
-      : `DOCUMENT LISTING — all ${profile.documents.length} indexed documents:`
+      ? `DOCUMENT LISTING — the ${profile.documents.length} largest of ${listedOf} documents (THIS LIST IS PARTIAL):`
+      : `DOCUMENT LISTING — all ${profile.documents.length} documents:`
   );
   for (const d of profile.documents) {
     const bits = [

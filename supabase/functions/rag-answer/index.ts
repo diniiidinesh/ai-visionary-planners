@@ -205,10 +205,11 @@ ${renderCorpusContext(profile)}
 1. Answer using ONLY the catalog data above. Every number you state must appear there — never estimate or extrapolate.
 2. Lead with the direct answer to what was asked (a count, the file types, the folders), then add the useful supporting detail.
 3. If the document listing is marked PARTIAL, say so explicitly and state how many documents it covers out of the total. Never present a partial list as complete.
-4. This data describes the documents as FILES — names, types, folders, sizes, dates. It does NOT say what they contain. If the question asks what the documents say or which topics they cover, answer what you can from names and folders, then state plainly that determining actual subject matter would require reading the documents themselves.
-5. Group and summarise rather than dumping the raw list — mention notable or representative documents by name instead of listing everything.
-6. Aim for 150-300 words, using **bold** for key figures and bullets for breakdowns.
-7. End with one of: ✅ **High Confidence**, ⚠️ **Medium Confidence**, or ❌ **Low Confidence**.`;
+4. If the catalog is marked OUT OF DATE, lead with the real figures, say plainly that per-document details are incomplete for documents indexed by an older build, and recommend re-running the Drive index. Never report that nothing is indexed while searchable passages exist.
+5. This data describes the documents as FILES — names, types, folders, sizes, dates. It does NOT say what they contain. If the question asks what the documents say or which topics they cover, answer what you can from names and folders, then state plainly that determining actual subject matter would require reading the documents themselves.
+6. Group and summarise rather than dumping the raw list — mention notable or representative documents by name instead of listing everything.
+7. Aim for 150-300 words, using **bold** for key figures and bullets for breakdowns.
+8. End with one of: ✅ **High Confidence**, ⚠️ **Medium Confidence**, or ❌ **Low Confidence**.`;
 
         const overviewResponse = await overviewProvider.chat({
           messages: [{ role: 'user' as const, content: overviewPrompt }],
