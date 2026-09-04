@@ -257,7 +257,15 @@ export const LiveRun = () => {
     const started = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("rag-answer", {
-        body: { question: q, history, overrides: { debugRetrieval: true } },
+        body: {
+          question: q,
+          history,
+          overrides: {
+            debugRetrieval: true,
+            // Omitted on "auto" so the planner's own classification decides.
+            ...(route === "auto" ? {} : { intent: route }),
+          },
+        },
       });
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
