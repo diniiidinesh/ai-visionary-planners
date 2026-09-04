@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, Play, RotateCcw, Check, CircleDashed } from "lucide-react";
+import { Loader2, Play, RotateCcw, Check, CircleDashed, Route } from "lucide-react";
 import { toast } from "sonner";
 
 interface Candidate {
