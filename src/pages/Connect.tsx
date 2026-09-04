@@ -199,6 +199,7 @@ const Connect = () => {
 
         <div className="mb-8 space-y-6">
           <DriveIndexPanel connected={connections['google_drive'] || false} />
+          <IndexHealthPanel />
           <IndexedPassagesBrowser />
         </div>
 
