@@ -64,6 +64,10 @@ interface ChatMessage {
   excerpts?: RagExcerpt[];
   ragDebug?: RagDebug | null;
   staleDocuments?: number;
+  // Which backend path answered. 'corpus_overview' questions ("what's in my
+  // Drive?") are answered from the document catalog with no retrieval at all,
+  // so they carry no excerpts and their document chips are not ranked sources.
+  answerMode?: "lookup" | "corpus_overview";
   isFallback?: boolean; // answered via live Drive search, not the indexed RAG path
 }
 
