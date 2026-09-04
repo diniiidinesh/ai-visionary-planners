@@ -317,26 +317,70 @@ export const LiveRun = () => {
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            ref={inputRef}
-            autoFocus
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={turns.length ? "Ask a follow-up…" : "Ask a question about your documents…"}
-            onKeyDown={(e) => e.key === "Enter" && !running && run()}
-          />
-          <Button onClick={run} disabled={running || !question.trim()}>
-            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            Run
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              ref={inputRef}
+              autoFocus
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder={turns.length ? "Ask a follow-up…" : "Ask a question about your documents…"}
+              onKeyDown={(e) => e.key === "Enter" && !running && run()}
+            />
+            <Button onClick={run} disabled={running || !question.trim()}>
+              {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+              Run
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Route className="h-3.5 w-3.5" /> Route:
+            </span>
+            {ROUTE_OPTIONS.map((o) => (
+              <Button
+                key={o.value}
+                type="button"
+                size="sm"
+                variant={route === o.value ? "secondary" : "ghost"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setRoute(o.value)}
+                disabled={running}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {route === "auto"
+              ? "The planner decides: questions about what the documents say go through retrieval, questions about the collection itself go to the catalog."
+              : "Forcing the route overrules the classifier. Ask the same question both ways to see why the routing exists — a forced lookup on \"what's in my Drive?\" describes ten passages as though they were everything."}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-xs text-muted-foreground">Try:</span>
+            {EXAMPLES.map((ex) => (
+              <Button
+                key={ex.label}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setQuestion(ex.question)}
+                disabled={running}
+              >
+                {ex.label}: “{ex.question}”
+                <span className="ml-1 text-muted-foreground">· {ex.hint}</span>
+              </Button>
+            ))}
+          </div>
         </div>
 
         {running && (
           <div className="rounded-md border p-3">
             <p className="mb-2 text-xs text-muted-foreground">Running…</p>
             <ul className="space-y-1">
-              {STAGES.map((s) => (
+              {PRE_ROUTE_STAGES.map((s) => (
                 <li key={s.n} className="flex items-center gap-2 text-sm">
                   {s.n < activeStage ? (
                     <Check className="h-4 w-4 text-primary" />
@@ -348,10 +392,18 @@ export const LiveRun = () => {
                   <span className={s.n > activeStage ? "text-muted-foreground/50" : ""}>{s.label}</span>
                 </li>
               ))}
+              <li className="flex items-center gap-2 text-sm text-muted-foreground/50">
+                <CircleDashed className="h-4 w-4 text-muted-foreground/40" />
+                {route === "auto"
+                  ? "Remaining stages depend on the route the classifier picks…"
+                  : route === "corpus_overview"
+                    ? `Then ${CORPUS_STAGES.length - 2} catalog stages (route forced)`
+                    : `Then ${LOOKUP_STAGES.length - 2} retrieval stages (route forced)`}
+              </li>
             </ul>
             <p className="mt-2 text-xs text-muted-foreground">
-              Stage highlighting is indicative — the backend answers in a single call, so exact per-stage
-              data appears below the moment the run finishes.
+              Stage highlighting is indicative — the backend answers in a single call, so the full route and
+              its per-stage data appear below the moment the run finishes.
             </p>
           </div>
         )}
