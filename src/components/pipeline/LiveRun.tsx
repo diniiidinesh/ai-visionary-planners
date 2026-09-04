@@ -223,6 +223,7 @@ export const LiveRun = () => {
   const [question, setQuestion] = useState("");
   const [running, setRunning] = useState(false);
   const [activeStage, setActiveStage] = useState(0);
+  const [route, setRoute] = useState<RouteChoice>("auto");
   const [turns, setTurns] = useState<Turn[]>([]);
   const timer = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -240,8 +241,10 @@ export const LiveRun = () => {
     setRunning(true);
     setQuestion("");
     setActiveStage(1);
+    // Only advances to the classification step: which stages run after it
+    // depends on the route, and the route isn't known until the response lands.
     timer.current = window.setInterval(() => {
-      setActiveStage((s) => (s >= 9 ? 9 : s + 1));
+      setActiveStage((s) => (s >= 2 ? 2 : s + 1));
     }, 900);
 
     const history = turns
