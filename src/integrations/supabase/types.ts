@@ -540,6 +540,16 @@ export type Database = {
         Args: { p_provider: string; p_user_id: string }
         Returns: Json
       }
+      index_health: {
+        Args: never
+        Returns: {
+          chunks: number
+          documents: number
+          ingest_status: string
+          newest_update: string
+          oldest_update: string
+        }[]
+      }
       match_document_chunks: {
         Args: {
           match_count?: number
