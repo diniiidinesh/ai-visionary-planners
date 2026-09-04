@@ -249,6 +249,7 @@ const Search = () => {
           excerpts: ragData.excerpts || [],
           ragDebug: ragData.retrieval ?? null,
           staleDocuments: ragData.staleDocuments ?? 0,
+          answerMode: ragData.answerMode === "corpus_overview" ? "corpus_overview" : "lookup",
         };
         setMessages((prev) => [...prev, assistantMessage]);
 
