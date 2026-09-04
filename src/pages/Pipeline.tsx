@@ -265,14 +265,30 @@ ANSWERING (runs on every question)
           n={6}
           title="Query planning: your question becomes two different questions"
           input='"and what about the second one?"'
-          output='standalone question + 2-4 short keyword queries'
+          output='standalone question + 2-4 keyword queries + a route'
         >
           <p>
-            One model call does two jobs. First it resolves conversational references into a question that
+            One model call does three jobs. First it resolves conversational references into a question that
             stands alone — "the second one" is meaningless to a vector search, so prior turns are folded in.
             Second it produces short keyword queries, because the two retrieval channels want opposite
             shapes: the vector channel likes a full natural sentence, while Postgres full-text search ANDs
             every term, so a long question matches literally nothing.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Third, it picks the route.</span> Most questions are
+            a <code>lookup</code> — "what do the documents say about X" — and continue into stages 7-9. But a
+            question about the <em>collection itself</em> ("what does my Drive contain?", "how many documents
+            are indexed?") is classified <code>corpus_overview</code> and skips retrieval entirely, answering
+            from the document catalog instead.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Why it can't just be retrieved.</span> Stage 9 caps
+            what reaches the model at ~10 passages, at most 3 per document. Ask what's in a 60-document Drive
+            and retrieval would show the model four files, which it would then describe as though they were
+            everything — confidently, because nothing tells it otherwise. The catalog already stores the exact
+            answer as structured data, so that class of question is routed there. Classification rides along
+            in this same call, so it costs no extra latency or spend, and anything ambiguous falls back to{" "}
+            <code>lookup</code> — the harmless direction.
           </p>
         </Stage>
 

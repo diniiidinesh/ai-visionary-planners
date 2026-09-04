@@ -239,7 +239,17 @@ export const EmbeddingLab = () => {
       body: {
         question: q,
         history: historyFor(space),
-        overrides: { embeddingProvider: space, debugRetrieval: true, retrievalMode: "hybrid" },
+        // Pinned to the retrieval path on purpose. This lab exists to compare
+        // two embedding spaces, and a corpus-overview question would skip
+        // embedding entirely — leaving both panes with identical answers and
+        // nothing to compare. Forcing 'lookup' keeps the comparison meaningful
+        // whatever gets typed in.
+        overrides: {
+          embeddingProvider: space,
+          debugRetrieval: true,
+          retrievalMode: "hybrid",
+          intent: "lookup",
+        },
       },
     });
     if (error) throw new Error(error.message);

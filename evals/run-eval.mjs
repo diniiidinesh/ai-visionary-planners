@@ -17,7 +17,7 @@
 //   node run-eval.mjs --embedding openai --out results/openai.json
 //   node run-eval.mjs --embedding voyage --out results/voyage.json
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { getSupabase, askRag, getConfig } from './lib/client.mjs';
+import { getSupabase, askRag, getConfig, getCorpusGroundTruth } from './lib/client.mjs';
 import {
   precisionAtK, recallAtK, reciprocalRank, ndcgAtK, hitAtK,
   mean, pct, citationValidity, isRefusal,
@@ -35,6 +35,13 @@ if (EMBEDDING && !['openai', 'voyage'].includes(EMBEDDING)) {
 }
 
 const MODEL = 'claude-opus-5';
+
+// Non-answerable case types where a NON-refusal is a real failure. Named
+// explicitly rather than as "everything that isn't answerable", because that
+// shape already produced one scoring bug: 'multilingual' cases are supposed to
+// be ANSWERED, and were being counted as hallucinations for doing so. Any new
+// case type is excluded from this metric until someone decides it belongs.
+const SHOULD_REFUSE_TYPES = new Set(['unanswerable', 'adversarial']);
 
 async function judgeFaithfulness(anthropic, question, answer, excerpts) {
   const context = excerpts
@@ -79,7 +86,7 @@ async function main() {
     console.warn(`⚠️  ${unreviewed} case(s) are still marked reviewed:false — metrics may reflect question quality, not pipeline quality.\n`);
   }
 
-  const { supabase, email } = await getSupabase();
+  const { supabase, userId, email } = await getSupabase();
   console.log(`Signed in as ${email}. Running ${golden.cases.length} cases (k=${K})...`);
   console.log(`Embedding space: ${EMBEDDING ? `${EMBEDDING} (forced via --embedding)` : "account's saved AI Settings preference (defaults to 'openai' if never set)"}\n`);
 
@@ -91,12 +98,22 @@ async function main() {
     anthropic = new Anthropic({ apiKey });
   }
 
+  // Read once: corpus cases are graded against the live database, not against
+  // counts baked into the golden set (which would go stale on the next sync).
+  const groundTruth = await getCorpusGroundTruth(supabase, userId);
+  if (golden.cases.some((c) => c.type === 'corpus_overview')) {
+    console.log(`Corpus ground truth: ${groundTruth.totalDocuments} documents, ${groundTruth.searchableChunks} chunks.\n`);
+  }
+
   const results = [];
   for (const c of golden.cases) {
     const started = Date.now();
     const res = await askRag(supabase, c.question, {
       history: c.history ?? [],
       ...(EMBEDDING ? { embeddingProvider: EMBEDDING } : {}),
+      // Only ever set deliberately by a case. Routing cases must NOT force it —
+      // they exist to measure whether classification lands on its own.
+      ...(c.forceIntent ? { intent: c.forceIntent } : {}),
     });
     const latencyMs = Date.now() - started;
 
@@ -111,7 +128,8 @@ async function main() {
     const answer = res.summary ?? '';
 
     // Binary relevance in rank order, judged at document level.
-    const relevance = candidates.map((cand) => c.expectedDocs.includes(cand.title));
+    const expectedDocs = c.expectedDocs ?? [];
+    const relevance = candidates.map((cand) => expectedDocs.includes(cand.title));
     const foundDocs = candidates.slice(0, K).filter((x) => x.title).map((x) => x.title);
 
     const record = {
@@ -124,6 +142,13 @@ async function main() {
       answer, // kept in full for debugging - which is often the whole point of a re-run
       excerptCount: excerpts.length,
       citations: citationValidity(answer, excerpts.length),
+      // Which path rag-answer actually took, per its own response. A
+      // right-sounding answer that took the wrong path is still a failure:
+      // it will break on a corpus where the shortcut doesn't happen to hold.
+      answerMode: res.answerMode ?? 'lookup',
+      routedCorrectly: c.expectedAnswerMode
+        ? (res.answerMode ?? 'lookup') === c.expectedAnswerMode
+        : null,
       retrieval: {
         candidateCount: candidates.length,
         // What rag-answer ACTUALLY used this call, per its own response —
@@ -147,7 +172,7 @@ async function main() {
     if (c.type === 'answerable') {
       record.metrics = {
         precisionAtK: precisionAtK(relevance, K),
-        recallAtK: recallAtK(foundDocs, c.expectedDocs),
+        recallAtK: recallAtK(foundDocs, expectedDocs),
         mrr: reciprocalRank(relevance),
         ndcgAtK: ndcgAtK(relevance, K),
         hitAtK: hitAtK(relevance, K),
@@ -165,8 +190,27 @@ async function main() {
       }
     }
 
+    if (c.type === 'corpus_overview') {
+      // Unlike retrieval, this path has exactly one correct answer, so grade it
+      // against the live database rather than a number frozen into the set.
+      record.corpus = res.corpus ?? null;
+      record.groundTruth = groundTruth;
+      const digits = (n) => [String(n), n.toLocaleString('en-US')];
+      record.factsPresent = (c.expectedFacts ?? []).map((f) => ({
+        fact: f,
+        present: answer.toLowerCase().includes(String(f).toLowerCase()),
+      }));
+      // The stated document count must match the real one, in either
+      // "1234" or "1,234" form.
+      record.statesRealDocumentCount = digits(groundTruth.totalDocuments).some((d) => answer.includes(d));
+      record.statesRealChunkCount = digits(groundTruth.searchableChunks).some((d) => answer.includes(d));
+      record.corpusCountsMatchDb =
+        res.corpus?.totalDocuments === groundTruth.totalDocuments &&
+        res.corpus?.searchableChunks === groundTruth.searchableChunks;
+    }
+
     results.push(record);
-    process.stdout.write(record.refused ? 'r' : '.');
+    process.stdout.write(record.routedCorrectly === false ? 'X' : record.refused ? 'r' : '.');
   }
 
   console.log('\n');
@@ -215,11 +259,12 @@ async function main() {
     guardrails: {
       // A NON-refusal on an unanswerable/adversarial question is a
       // hallucination risk — the single most important safety number in
-      // this report. 'multilingual' is excluded: those cases test whether
+      // this report. Only the types in SHOULD_REFUSE_TYPES count: 'multilingual'
+      // and 'corpus_overview' cases test whether
       // a non-English query over the English corpus gets ANSWERED
       // correctly, so a non-refusal there is success, not a false answer.
       falseAnswerRate: (() => {
-        const shouldRefuse = guard.filter((r) => r.type !== 'multilingual');
+        const shouldRefuse = guard.filter((r) => SHOULD_REFUSE_TYPES.has(r.type));
         return shouldRefuse.length ? shouldRefuse.filter((r) => !r.refused).length / shouldRefuse.length : 0;
       })(),
       byType: Object.fromEntries(
@@ -229,6 +274,24 @@ async function main() {
         })
       ),
     },
+    routing: (() => {
+      const asserted = results.filter((r) => r.routedCorrectly !== null && r.routedCorrectly !== undefined && !r.error);
+      const corpus = results.filter((r) => r.type === 'corpus_overview' && !r.error);
+      return {
+        casesWithRoutingAssertion: asserted.length,
+        routingAccuracy: asserted.length ? asserted.filter((r) => r.routedCorrectly).length / asserted.length : null,
+        misrouted: asserted.filter((r) => !r.routedCorrectly).map((r) => ({
+          id: r.id, expected: golden.cases.find((c) => c.id === r.id)?.expectedAnswerMode, got: r.answerMode,
+        })),
+        // Corpus answers have one exact right answer, so they're graded against
+        // the live database rather than by ranking metrics.
+        corpusCases: corpus.length,
+        statedRealDocumentCount: corpus.length
+          ? corpus.filter((r) => r.statesRealDocumentCount).length / corpus.length : null,
+        serverCountsMatchedDb: corpus.length
+          ? corpus.filter((r) => r.corpusCountsMatchDb).length / corpus.length : null,
+      };
+    })(),
     latency: {
       meanMs: Math.round(mean(results.map((r) => r.latencyMs))),
       p95Ms: (() => {
@@ -265,6 +328,17 @@ async function main() {
   console.log(`  Invalid cites   ${pct(A.invalidCitationRate)}   (cited [n] with no such excerpt)`);
   console.log(`  Uncited answers ${pct(A.uncitedAnswerRate)}`);
   if (JUDGE) console.log(`  Faithfulness    ${A.faithfulnessMean?.toFixed(2)} / 5`);
+  if (summary.routing.casesWithRoutingAssertion > 0) {
+    const R2 = summary.routing;
+    console.log('\n════════ ROUTING ════════');
+    console.log(`  Routing accuracy ${pct(R2.routingAccuracy)}  (question sent down the right path)`);
+    for (const m of R2.misrouted) console.log(`    ✗ ${m.id}: expected ${m.expected}, got ${m.got}`);
+    if (R2.corpusCases > 0) {
+      console.log(`  Real doc count   ${pct(R2.statedRealDocumentCount)}  (answer states the true document total)`);
+      console.log(`  Server vs DB     ${pct(R2.serverCountsMatchedDb)}  (catalog figures match a direct COUNT)`);
+    }
+  }
+
   console.log('\n════════ GUARDRAILS ════════');
   console.log(`  False answer    ${pct(G.falseAnswerRate)}   (answered when it should have refused)`);
   for (const [t, v] of Object.entries(G.byType)) console.log(`    ${t.padEnd(14)} ${v.refused}/${v.n} refused`);

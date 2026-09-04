@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "purpose": "Routing regression set for corpus-overview vs lookup classification.",
+  "provenance": "HAND-WRITTEN and deliberately corpus-agnostic. Unlike golden-set.json, no case here quotes or depends on the content of any document, so this file is safe to commit and works against any account's corpus. Correctness for the corpus_overview cases is checked against the live database at run time (see getCorpusGroundTruth in lib/client.mjs), not against numbers frozen into this file.",
+  "howToRun": "node run-eval.mjs --set golden-set.routing.json --out results/routing.json",
+  "readingTheResults": "The ROUTING block is what matters. routingAccuracy must be 1.0 — a misrouted question is a failure even when the answer reads well, because it will break on a corpus where the shortcut doesn't hold. The r001-series (negative) cases are the important half: they are lookups that SOUND like catalog questions, and they are what catches an over-eager classifier.",
+  "cases": [
+    {
+      "id": "c001",
+      "question": "What does my Drive contain?",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "The canonical case. This is the question that exposed the gap: retrieval answers it from ~4 documents and describes them as the whole collection.",
+      "reviewed": true
+    },
+    {
+      "id": "c002",
+      "question": "How many documents do you have indexed?",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Exact-answer case. The harness asserts the stated count matches a direct COUNT(*) against document_index.",
+      "reviewed": true
+    },
+    {
+      "id": "c003",
+      "question": "What kinds of files are in my indexed documents?",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "File-type breakdown. Answerable only from catalog metadata, never from passage content.",
+      "reviewed": true
+    },
+    {
+      "id": "c004",
+      "question": "Which folders have my documents been indexed from?",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Folder breakdown. Watch for '(folder not recorded)' dominating — that means folder_path resolution is failing at ingest, which is a real finding, not a routing failure.",
+      "reviewed": true
+    },
+    {
+      "id": "c005",
+      "question": "Give me an overview of everything you have access to.",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Phrased with no catalog vocabulary at all — no 'documents', 'files' or 'indexed'. Tests that classification reads intent rather than keywords.",
+      "reviewed": true
+    },
+    {
+      "id": "c006",
+      "question": "How much of my Drive has actually been indexed so far?",
+      "type": "corpus_overview",
+      "expectedAnswerMode": "corpus_overview",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Ingest-status question. On an account with legacy catalog rows this should surface the staleness warning rather than reporting zero.",
+      "reviewed": true
+    },
+
+    {
+      "id": "r001",
+      "question": "Which documents mention pricing?",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "THE hardest negative case. It asks about documents, so it sounds like a catalog question, but answering it requires reading content — the catalog has no idea what any file mentions. Misrouting this produces a confident answer built from filenames alone.",
+      "reviewed": true
+    },
+    {
+      "id": "r002",
+      "question": "What does the pricing document say about monthly tiers?",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Contains 'document' and 'say' — one word away from the corpus phrasing. This is the this-document vs this-corpus confusion the classifier prompt targets explicitly.",
+      "reviewed": true
+    },
+    {
+      "id": "r003",
+      "question": "What are the main themes across my documents?",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Genuinely ambiguous, and deliberately so. It is corpus-scoped but needs content, which neither path answers well. 'lookup' is the correct call because the catalog cannot see themes at all — and the overview prompt is instructed to say so if it does land here.",
+      "reviewed": true
+    },
+    {
+      "id": "r004",
+      "question": "Summarise the most recent proposal in my files.",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "'my files' is catalog vocabulary but the task is summarisation of content. Tests that the classifier weighs the verb, not just the noun.",
+      "reviewed": true
+    },
+    {
+      "id": "r005",
+      "question": "What is the total budget across all the event proposals?",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "An AGGREGATION question — explicitly out of scope for this feature. It must not be swallowed by the corpus path, which would answer it from filenames. Routing to lookup means it fails the way it failed before this feature, which is the correct, known behaviour rather than a new wrong one.",
+      "reviewed": true
+    },
+    {
+      "id": "r006",
+      "question": "How many people are mentioned in my meeting notes?",
+      "type": "routing_negative",
+      "expectedAnswerMode": "lookup",
+      "expectedDocs": [],
+      "expectedFacts": [],
+      "notes": "Starts with 'how many', the strongest corpus_overview signal in the set, but counts things inside documents rather than the documents themselves. The counting-verb trap.",
+      "reviewed": true
+    }
+  ]
+}

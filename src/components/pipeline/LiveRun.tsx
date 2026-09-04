@@ -36,8 +36,10 @@ interface Excerpt {
 }
 
 interface Retrieval {
-  mode: string;
-  embeddingSpace: string;
+  /** Which path the planner routed this question down. Absent on older responses. */
+  intent?: "lookup" | "corpus_overview";
+  mode: string | null;
+  embeddingSpace: string | null;
   embeddingModel: string;
   embeddingFallback: string | null;
   candidates: Candidate[];
@@ -46,15 +48,28 @@ interface Retrieval {
   keywordQueries: string[] | null;
 }
 
+/** Catalog figures, present only on corpus-overview turns. */
+interface Corpus {
+  totalDocuments: number;
+  indexedDocuments: number;
+  searchableChunks: number;
+  listingTruncated: boolean;
+  statsComplete: boolean;
+  catalogStale: boolean;
+}
+
 interface Turn {
   question: string;
   answer: string;
   ms: number;
   model?: string;
   chunksUsed: number;
+  /** Which answering path produced this turn. Defaults to lookup for older responses. */
+  answerMode: "lookup" | "corpus_overview";
   settings?: Record<string, unknown>;
   excerpts: Excerpt[];
   retrieval: Retrieval | null;
+  corpus: Corpus | null;
 }
 
 const STAGES = [
@@ -211,9 +226,11 @@ export const LiveRun = () => {
           ms: Math.round(performance.now() - started),
           model: data.model,
           chunksUsed: data.chunksUsed ?? 0,
+          answerMode: data.answerMode === "corpus_overview" ? "corpus_overview" : "lookup",
           settings: data.settings,
           excerpts: (data.excerpts ?? []) as Excerpt[],
           retrieval: (data.retrieval ?? null) as Retrieval | null,
+          corpus: (data.corpus ?? null) as Corpus | null,
         },
       ]);
     } catch (err) {
@@ -297,7 +314,11 @@ export const LiveRun = () => {
                 <Badge variant="secondary">Turn {ti + 1}</Badge>
                 <Badge variant="outline">{t.ms} ms</Badge>
                 {t.model && <span className="font-mono text-xs text-muted-foreground">{t.model}</span>}
-                {r && <Badge variant="outline">{r.mode} · {r.embeddingSpace}</Badge>}
+                {t.answerMode === "corpus_overview" ? (
+                  <Badge variant="outline">catalog lookup · no retrieval</Badge>
+                ) : (
+                  r?.mode && <Badge variant="outline">{r.mode} · {r.embeddingSpace}</Badge>
+                )}
               </div>
               <p className="text-sm font-medium">{t.question}</p>
 
@@ -307,6 +328,76 @@ export const LiveRun = () => {
                 </Alert>
               )}
 
+              {t.answerMode === "corpus_overview" ? (
+                <Accordion type="multiple" className="w-full">
+                  <StageRow n={1} label="Understand the question" state="done">
+                    <p>
+                      Raw input sent to the backend, with the last {Math.min(ti, 4) * 2} prior message(s) as
+                      conversation context.
+                    </p>
+                    <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{t.question}</pre>
+                  </StageRow>
+
+                  <StageRow n={2} label="Classify the intent → corpus_overview" state="done">
+                    <p>
+                      The planner classified this as a question about the <em>collection itself</em>, not about
+                      what any document says — so the retrieval pipeline was skipped entirely.
+                    </p>
+                    <p className="text-xs">
+                      Retrieval could not answer this correctly: it returns the ~10 best-matching passages,
+                      capped per document, so the model would see a handful of files and describe them as if
+                      they were the whole Drive. The classification is a field on the query-planner call that
+                      already runs, so it costs no extra time or spend.
+                    </p>
+                  </StageRow>
+
+                  <StageRow n={3} label="Query the document catalog" state="done">
+                    <p>
+                      Counts read straight from <code>document_index</code> — the per-file catalog the ingest
+                      pipeline maintains. No embedding, no vector search, no keyword search, no reranking ran.
+                    </p>
+                    {t.corpus && (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <div className="rounded border p-2">
+                          <p className="text-xs text-muted-foreground">Catalog documents</p>
+                          <p className="font-mono text-sm text-foreground">{t.corpus.totalDocuments}</p>
+                        </div>
+                        <div className="rounded border p-2">
+                          <p className="text-xs text-muted-foreground">Marked indexed</p>
+                          <p className="font-mono text-sm text-foreground">{t.corpus.indexedDocuments}</p>
+                        </div>
+                        <div className="rounded border p-2">
+                          <p className="text-xs text-muted-foreground">Searchable passages</p>
+                          <p className="font-mono text-sm text-foreground">{t.corpus.searchableChunks}</p>
+                        </div>
+                      </div>
+                    )}
+                    {t.corpus?.catalogStale && (
+                      <Alert variant="destructive">
+                        <AlertDescription className="text-xs">
+                          The catalog is out of date: searchable passages exist that it does not account for.
+                          These documents were indexed before the catalog recorded per-document status, so
+                          folders, sizes and statuses are missing for them. Re-run the Drive index to refresh.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {t.corpus?.listingTruncated && (
+                      <p className="text-xs">
+                        The document listing handed to the model was capped — the answer is required to say so
+                        rather than present a partial list as complete.
+                      </p>
+                    )}
+                  </StageRow>
+
+                  <StageRow n={4} label="Generate the answer from catalog data" state="done">
+                    <p>
+                      The counts above were rendered as text and handed to the answer model, which summarises
+                      them. Every figure it states is a query result, not an estimate.
+                    </p>
+                    <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{t.answer}</pre>
+                  </StageRow>
+                </Accordion>
+              ) : (
               <Accordion type="multiple" className="w-full">
                 <StageRow n={1} label="Understand the question" state="done">
                   <p>
@@ -314,6 +405,13 @@ export const LiveRun = () => {
                     conversation context.
                   </p>
                   <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{t.question}</pre>
+                  {r?.intent && (
+                    <p className="text-xs">
+                      The planner classified this as <code>{r.intent}</code> — a question about what the
+                      documents say, so it goes through retrieval. Questions about the collection itself
+                      (&ldquo;what&rsquo;s in my Drive?&rdquo;) are routed to the catalog instead.
+                    </p>
+                  )}
                 </StageRow>
 
                 <StageRow n={2} label="Rewrite into a standalone search query" state="done">
@@ -395,6 +493,7 @@ export const LiveRun = () => {
                   <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{t.answer}</pre>
                 </StageRow>
               </Accordion>
+              )}
 
               <Separator />
               <p className="whitespace-pre-wrap text-sm text-foreground">{t.answer}</p>

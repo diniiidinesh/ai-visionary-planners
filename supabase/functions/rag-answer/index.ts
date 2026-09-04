@@ -16,6 +16,7 @@ import {
 import { CHUNK_SIZE, CHUNK_OVERLAP, METADATA_VERSION } from '../_shared/rag/chunker.ts';
 import { rerank, RerankError } from '../_shared/rag/reranker.ts';
 import { planQuery } from '../_shared/rag/query-planner.ts';
+import { buildCorpusProfile, renderCorpusContext } from '../_shared/rag/corpus-overview.ts';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
@@ -47,6 +48,12 @@ const RagAnswerSchema = z.object({
     retrievalMode: z.enum(['vector', 'hybrid', 'keyword']).optional(),
     embeddingProvider: z.enum(['openai', 'voyage']).optional(),
     debugRetrieval: z.boolean().optional(),
+    // Forces the answering path instead of trusting the planner's
+    // classification. Two jobs: a kill switch if routing ever misbehaves in
+    // production (pin every request to 'lookup' without a redeploy), and a way
+    // for evals to exercise the catalog path deterministically rather than
+    // depending on the classifier being right that run.
+    intent: z.enum(['lookup', 'corpus_overview']).optional(),
   }).optional(),
 });
 
@@ -61,6 +68,9 @@ const DEFAULTS = {
   embeddingProvider: 'openai' as const,
   debugRetrieval: false,
 };
+
+/** Documents returned as `sources` on a corpus answer. See the corpus branch. */
+const CORPUS_SOURCES_SHOWN = 12;
 
 /** RRF weights per retrieval mode. */
 function weightsFor(mode: string): { vector: number; keyword: number } {
@@ -139,28 +149,9 @@ serve(async (req) => {
       debugRetrieval: overrides?.debugRetrieval ?? (prefs?.debug_retrieval ?? DEFAULTS.debugRetrieval),
     };
 
-    // Voyage retrieval needs both the key and a Voyage-embedded index.
-    let embeddingSpace: EmbeddingSpace = settings.embeddingProvider;
-    let embeddingFallback: string | null = null;
-    if (embeddingSpace === 'voyage') {
-      if (!voyageConfigured()) {
-        embeddingSpace = 'openai';
-        embeddingFallback = 'VOYAGE_API_KEY is not configured — used the OpenAI embedding space.';
-      } else {
-        const { count: voyageChunks } = await supabase
-          .from('document_chunks')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .not('embedding_voyage', 'is', null);
-        if (!voyageChunks) {
-          embeddingSpace = 'openai';
-          embeddingFallback = 'No Voyage embeddings indexed yet — run a full re-index. Used the OpenAI embedding space.';
-        }
-      }
-    }
-    settings.embeddingProvider = embeddingSpace;
-
     // Documents indexed with a different embedding model or chunk settings.
+    // Cheap, and used by both paths below, so it runs before we know which one
+    // we're taking.
     const { count: staleDocuments } = await supabase
       .from('document_index')
       .select('id', { count: 'exact', head: true })
@@ -181,6 +172,137 @@ serve(async (req) => {
     const planProvider = AIProviderFactory.create(await configManager.getProviderConfig('search'));
     const plan = await planQuery(planProvider, question, history ?? []);
     const retrievalQuery = plan.standaloneQuestion;
+
+    // Corpus-level questions ("what's in my Drive?") are answered from the
+    // catalog, not from retrieved passages — top-k retrieval would show the
+    // model a handful of documents and let it describe them as the whole
+    // collection. Falls through to normal retrieval if the catalog is empty,
+    // so an orphaned-chunks state can't produce a description of nothing.
+    //
+    // Deliberately checked BEFORE resolving the embedding space below: this
+    // path never embeds anything, so it is identical for 'openai' and
+    // 'voyage' accounts, and doesn't pay for the Voyage-availability check
+    // that resolution requires.
+    const effectiveIntent = overrides?.intent ?? plan.intent;
+
+    if (effectiveIntent === 'corpus_overview') {
+      const profile = await buildCorpusProfile(supabase, user.id, 'google_drive');
+
+      if (profile.totalDocuments > 0) {
+        const overviewProvider = AIProviderFactory.create(await configManager.getProviderConfig('summarize'));
+
+        const overviewPrompt = `You are describing the contents of the user's indexed document collection.
+
+**Question**: ${question}
+
+**Catalog data** (exact counts queried from the index, not estimates):
+${renderCorpusContext(profile)}
+
+**Instructions**:
+1. Answer using ONLY the catalog data above. Every number you state must appear there — never estimate or extrapolate.
+2. Lead with the direct answer to what was asked (a count, the file types, the folders), then add the useful supporting detail.
+3. If the document listing is marked PARTIAL, say so explicitly and state how many documents it covers out of the total. Never present a partial list as complete.
+4. If the catalog is marked OUT OF DATE, lead with the real figures, say plainly that per-document details are incomplete for documents indexed by an older build, and recommend re-running the Drive index. Never report that nothing is indexed while searchable passages exist.
+5. This data describes the documents as FILES — names, types, folders, sizes, dates. It does NOT say what they contain. If the question asks what the documents say or which topics they cover, answer what you can from names and folders, then state plainly that determining actual subject matter would require reading the documents themselves.
+6. Group and summarise rather than dumping the raw list — mention notable or representative documents by name instead of listing everything.
+7. Aim for 150-300 words, using **bold** for key figures and bullets for breakdowns.
+8. End with one of: ✅ **High Confidence**, ⚠️ **Medium Confidence**, or ❌ **Low Confidence**.`;
+
+        const overviewResponse = await overviewProvider.chat({
+          messages: [{ role: 'user' as const, content: overviewPrompt }],
+          temperature: settings.temperature,
+          maxTokens: settings.maxOutputTokens,
+        });
+
+        const overviewTime = Date.now() - startTime;
+        if (!overviewResponse.content) throw new Error('No answer generated from AI service');
+
+        const { error: overviewLogError } = await supabase.from('ai_usage_logs').insert({
+          user_id: user.id,
+          provider: overviewResponse.provider,
+          model: overviewResponse.model,
+          purpose: 'rag_corpus_overview',
+          prompt_tokens: overviewResponse.usage?.promptTokens ?? null,
+          completion_tokens: overviewResponse.usage?.completionTokens ?? null,
+          total_tokens: overviewResponse.usage?.totalTokens ?? null,
+          response_time_ms: overviewTime,
+        });
+        if (overviewLogError) console.error('Error logging AI usage:', overviewLogError.message);
+
+        return new Response(
+          JSON.stringify({
+            summary: overviewResponse.content,
+            answerMode: 'corpus_overview',
+            // Capped well below the listing the model saw. Search.tsx renders
+            // every source as a chip with a relevance score, and a corpus
+            // question can match hundreds of documents at no relevance at all —
+            // the answer already carries the real totals, so flooding the UI
+            // with 100 zero-percent chips would be noise, not provenance.
+            sources: profile.documents.slice(0, CORPUS_SOURCES_SHOWN).map((d) => ({
+              id: d.sourceId,
+              name: d.title,
+              url: d.url,
+              mimeType: d.fileType,
+              author: null,
+              modifiedTime: d.modifiedTime,
+              topSimilarity: null,
+            })),
+            excerpts: [],
+            chunksUsed: 0,
+            model: `${overviewResponse.provider}/${overviewResponse.model}`,
+            settings,
+            staleDocuments: staleDocuments ?? 0,
+            corpus: {
+              totalDocuments: profile.totalDocuments,
+              indexedDocuments: profile.indexedDocuments,
+              totalChunks: profile.totalChunks,
+              listingTruncated: profile.listingTruncated,
+              statsComplete: profile.statsComplete,
+            },
+            retrieval: settings.debugRetrieval
+              ? {
+                  intent: effectiveIntent,
+                  classifiedIntent: plan.intent,
+                  intentForced: overrides?.intent != null,
+                  // No embedding, search or rerank runs on this path.
+                  mode: null,
+                  embeddingSpace: null,
+                  candidates: [],
+                  reranked: false,
+                  retrievalQuery: retrievalQuery !== question ? retrievalQuery : null,
+                  keywordQueries: null,
+                }
+              : null,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.warn('corpus_overview intent but the catalog is empty — falling back to retrieval.');
+    }
+
+    // Voyage retrieval needs both the key and a Voyage-embedded index. Only
+    // resolved here, on the lookup path — the corpus path above never reaches
+    // this and never pays for the extra query it requires.
+    let embeddingSpace: EmbeddingSpace = settings.embeddingProvider;
+    let embeddingFallback: string | null = null;
+    if (embeddingSpace === 'voyage') {
+      if (!voyageConfigured()) {
+        embeddingSpace = 'openai';
+        embeddingFallback = 'VOYAGE_API_KEY is not configured — used the OpenAI embedding space.';
+      } else {
+        const { count: voyageChunks } = await supabase
+          .from('document_chunks')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .not('embedding_voyage', 'is', null);
+        if (!voyageChunks) {
+          embeddingSpace = 'openai';
+          embeddingFallback = 'No Voyage embeddings indexed yet — run a full re-index. Used the OpenAI embedding space.';
+        }
+      }
+    }
+    settings.embeddingProvider = embeddingSpace;
 
     const weights = weightsFor(settings.retrievalMode);
     const activeDims = embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_DIMENSIONS : EMBEDDING_DIMENSIONS;
@@ -215,6 +337,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           summary: '❌ The indexed documents do not contain information about this.',
+          answerMode: 'lookup',
           sources: [],
           chunksUsed: 0,
           settings,
@@ -342,6 +465,7 @@ ${context}
     return new Response(
       JSON.stringify({
         summary: aiResponse.content,
+        answerMode: 'lookup',
         sources,
         excerpts: selected.map((c, i) => ({
           ref: i + 1,
@@ -359,6 +483,9 @@ ${context}
         staleDocuments: staleDocuments ?? 0,
         retrieval: settings.debugRetrieval
           ? {
+              intent: effectiveIntent,
+              classifiedIntent: plan.intent,
+              intentForced: overrides?.intent != null,
               mode: settings.retrievalMode,
               embeddingSpace,
               embeddingModel: embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_MODEL : EMBEDDING_MODEL,
