@@ -23,6 +23,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/connect" element={<Connect />} />
           <Route path="/search" element={<Search />} />
           <Route path="/ai-settings" element={<AISettings />} />
