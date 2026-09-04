@@ -38,6 +38,9 @@ interface Excerpt {
 interface Retrieval {
   /** Which path the planner routed this question down. Absent on older responses. */
   intent?: "lookup" | "corpus_overview";
+  /** What the classifier itself decided, even when an override overruled it. */
+  classifiedIntent?: "lookup" | "corpus_overview";
+  intentForced?: boolean;
   mode: string | null;
   embeddingSpace: string | null;
   embeddingModel: string;
@@ -52,6 +55,9 @@ interface Retrieval {
 interface Corpus {
   totalDocuments: number;
   indexedDocuments: number;
+  /** What the catalog's own per-document bookkeeping adds up to. */
+  catalogChunks: number;
+  /** Chunk rows that actually exist and are actually searchable. */
   searchableChunks: number;
   listingTruncated: boolean;
   statsComplete: boolean;
@@ -72,7 +78,9 @@ interface Turn {
   corpus: Corpus | null;
 }
 
-const STAGES = [
+type RouteChoice = "auto" | "lookup" | "corpus_overview";
+
+const LOOKUP_STAGES = [
   { n: 1, label: "Understand the question" },
   { n: 2, label: "Rewrite into a standalone search query" },
   { n: 3, label: "Embed the query into a vector" },
@@ -82,6 +90,38 @@ const STAGES = [
   { n: 7, label: "Rerank + cap per document" },
   { n: 8, label: "Build the prompt from excerpts" },
   { n: 9, label: "Generate the cited answer" },
+];
+
+const CORPUS_STAGES = [
+  { n: 1, label: "Understand the question" },
+  { n: 2, label: "Classify the intent → corpus_overview" },
+  { n: 3, label: "Query the document catalog" },
+  { n: 4, label: "Generate the answer from catalog data" },
+];
+
+/** Shown until the response lands: the route isn't known before the planner runs. */
+const PRE_ROUTE_STAGES = [
+  { n: 1, label: "Understand the question" },
+  { n: 2, label: "Plan the query and classify the route" },
+];
+
+const EXAMPLES: { label: string; question: string; hint: string }[] = [
+  {
+    label: "Lookup",
+    question: "What are the main conclusions in my most recent documents?",
+    hint: "routed through retrieval",
+  },
+  {
+    label: "Corpus overview",
+    question: "What does my Drive contain?",
+    hint: "routed to the catalog",
+  },
+];
+
+const ROUTE_OPTIONS: { value: RouteChoice; label: string }[] = [
+  { value: "auto", label: "Auto (classifier)" },
+  { value: "lookup", label: "Force lookup" },
+  { value: "corpus_overview", label: "Force corpus overview" },
 ];
 
 const num = (v: number | null | undefined, d = 3) =>
