@@ -415,12 +415,21 @@ export const LiveRun = () => {
             <div key={ti} className="space-y-3 rounded-md border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">Turn {ti + 1}</Badge>
+                <Badge>
+                  {t.answerMode === "corpus_overview" ? "corpus overview" : "lookup"}
+                </Badge>
                 <Badge variant="outline">{t.ms} ms</Badge>
                 {t.model && <span className="font-mono text-xs text-muted-foreground">{t.model}</span>}
                 {t.answerMode === "corpus_overview" ? (
                   <Badge variant="outline">catalog lookup · no retrieval</Badge>
                 ) : (
                   r?.mode && <Badge variant="outline">{r.mode} · {r.embeddingSpace}</Badge>
+                )}
+                {r?.intentForced && (
+                  <Badge variant="outline">
+                    route forced
+                    {r.classifiedIntent ? ` · classifier said ${r.classifiedIntent}` : ""}
+                  </Badge>
                 )}
               </div>
               <p className="text-sm font-medium">{t.question}</p>
