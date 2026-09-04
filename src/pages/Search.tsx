@@ -539,7 +539,13 @@ const Search = () => {
                     )}
 
                     {!!m.sources?.length && (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-[11px] font-medium text-muted-foreground">
+                          {m.answerMode === "corpus_overview"
+                            ? `Documents in your index (${m.sources.length} of the largest shown)`
+                            : "Sources"}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
                         {m.sources.map((s) => (
                           <a
                             key={s.id}
