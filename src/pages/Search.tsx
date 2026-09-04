@@ -461,6 +461,12 @@ const Search = () => {
                     {m.isFallback && (
                       <p className="text-xs text-muted-foreground italic">Answered via live Drive search (nothing indexed yet)</p>
                     )}
+                    {m.answerMode === "corpus_overview" && (
+                      <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-[11px] text-secondary-foreground">
+                        <Library className="h-3 w-3" />
+                        Answered from the document catalog — exact counts, no passage search
+                      </p>
+                    )}
 
                     {!!m.excerpts?.length && (
                       <Collapsible className="mt-3">
