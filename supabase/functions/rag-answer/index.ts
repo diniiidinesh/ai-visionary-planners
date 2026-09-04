@@ -149,28 +149,9 @@ serve(async (req) => {
       debugRetrieval: overrides?.debugRetrieval ?? (prefs?.debug_retrieval ?? DEFAULTS.debugRetrieval),
     };
 
-    // Voyage retrieval needs both the key and a Voyage-embedded index.
-    let embeddingSpace: EmbeddingSpace = settings.embeddingProvider;
-    let embeddingFallback: string | null = null;
-    if (embeddingSpace === 'voyage') {
-      if (!voyageConfigured()) {
-        embeddingSpace = 'openai';
-        embeddingFallback = 'VOYAGE_API_KEY is not configured — used the OpenAI embedding space.';
-      } else {
-        const { count: voyageChunks } = await supabase
-          .from('document_chunks')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .not('embedding_voyage', 'is', null);
-        if (!voyageChunks) {
-          embeddingSpace = 'openai';
-          embeddingFallback = 'No Voyage embeddings indexed yet — run a full re-index. Used the OpenAI embedding space.';
-        }
-      }
-    }
-    settings.embeddingProvider = embeddingSpace;
-
     // Documents indexed with a different embedding model or chunk settings.
+    // Cheap, and used by both paths below, so it runs before we know which one
+    // we're taking.
     const { count: staleDocuments } = await supabase
       .from('document_index')
       .select('id', { count: 'exact', head: true })
@@ -197,6 +178,11 @@ serve(async (req) => {
     // model a handful of documents and let it describe them as the whole
     // collection. Falls through to normal retrieval if the catalog is empty,
     // so an orphaned-chunks state can't produce a description of nothing.
+    //
+    // Deliberately checked BEFORE resolving the embedding space below: this
+    // path never embeds anything, so it is identical for 'openai' and
+    // 'voyage' accounts, and doesn't pay for the Voyage-availability check
+    // that resolution requires.
     const effectiveIntent = overrides?.intent ?? plan.intent;
 
     if (effectiveIntent === 'corpus_overview') {
@@ -294,6 +280,29 @@ ${renderCorpusContext(profile)}
 
       console.warn('corpus_overview intent but the catalog is empty — falling back to retrieval.');
     }
+
+    // Voyage retrieval needs both the key and a Voyage-embedded index. Only
+    // resolved here, on the lookup path — the corpus path above never reaches
+    // this and never pays for the extra query it requires.
+    let embeddingSpace: EmbeddingSpace = settings.embeddingProvider;
+    let embeddingFallback: string | null = null;
+    if (embeddingSpace === 'voyage') {
+      if (!voyageConfigured()) {
+        embeddingSpace = 'openai';
+        embeddingFallback = 'VOYAGE_API_KEY is not configured — used the OpenAI embedding space.';
+      } else {
+        const { count: voyageChunks } = await supabase
+          .from('document_chunks')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .not('embedding_voyage', 'is', null);
+        if (!voyageChunks) {
+          embeddingSpace = 'openai';
+          embeddingFallback = 'No Voyage embeddings indexed yet — run a full re-index. Used the OpenAI embedding space.';
+        }
+      }
+    }
+    settings.embeddingProvider = embeddingSpace;
 
     const weights = weightsFor(settings.retrievalMode);
     const activeDims = embeddingSpace === 'voyage' ? VOYAGE_EMBEDDING_DIMENSIONS : EMBEDDING_DIMENSIONS;

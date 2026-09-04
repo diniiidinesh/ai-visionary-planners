@@ -264,6 +264,18 @@ of *every* question, so a tweak intended to help routing can quietly degrade
 standalone-question rewriting for everything else. For that, re-run the main set
 too and compare against the previous run.
 
+Run it once with each `--embedding` value too:
+
+```bash
+node run-eval.mjs --set golden-set.routing.json --embedding openai --out results/routing-openai.json
+node run-eval.mjs --set golden-set.routing.json --embedding voyage --out results/routing-voyage.json
+```
+
+Routing itself doesn't depend on which embedding space is active — the
+corpus_overview path never embeds anything, and the classification happens
+before the embedding space is even resolved — but this is what actually proves
+that rather than assuming it. `routingAccuracy` should read 1.0 both times.
+
 
 ### Deterministic vs judged
 
