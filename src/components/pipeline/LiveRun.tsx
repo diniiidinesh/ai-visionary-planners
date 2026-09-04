@@ -469,7 +469,7 @@ export const LiveRun = () => {
                       pipeline maintains. No embedding, no vector search, no keyword search, no reranking ran.
                     </p>
                     {t.corpus && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <div className="rounded border p-2">
                           <p className="text-xs text-muted-foreground">Catalog documents</p>
                           <p className="font-mono text-sm text-foreground">{t.corpus.totalDocuments}</p>
@@ -479,11 +479,20 @@ export const LiveRun = () => {
                           <p className="font-mono text-sm text-foreground">{t.corpus.indexedDocuments}</p>
                         </div>
                         <div className="rounded border p-2">
+                          <p className="text-xs text-muted-foreground">Passages per the catalog</p>
+                          <p className="font-mono text-sm text-foreground">{t.corpus.catalogChunks}</p>
+                        </div>
+                        <div className="rounded border p-2">
                           <p className="text-xs text-muted-foreground">Searchable passages</p>
                           <p className="font-mono text-sm text-foreground">{t.corpus.searchableChunks}</p>
                         </div>
                       </div>
                     )}
+                    <p className="text-xs">
+                      The last two are counted differently on purpose: one is the catalog's own bookkeeping,
+                      the other is how many chunk rows actually exist. When they disagree, the catalog is
+                      behind.
+                    </p>
                     {t.corpus?.catalogStale && (
                       <Alert variant="destructive">
                         <AlertDescription className="text-xs">
