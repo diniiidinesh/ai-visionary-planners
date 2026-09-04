@@ -255,7 +255,12 @@ ${renderCorpusContext(profile)}
             corpus: {
               totalDocuments: profile.totalDocuments,
               indexedDocuments: profile.indexedDocuments,
-              totalChunks: profile.totalChunks,
+              // Both chunk figures travel: the catalog's own bookkeeping and
+              // the ground-truth row count. Their gap is exactly what
+              // `catalogStale` is reporting, so the UI needs both to explain it.
+              catalogChunks: profile.catalogChunks,
+              searchableChunks: profile.searchableChunks,
+              catalogStale: profile.catalogStale,
               listingTruncated: profile.listingTruncated,
               statsComplete: profile.statsComplete,
             },

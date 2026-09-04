@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Search as SearchIcon, FileText, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings, Plus, MessageSquare, BookOpen } from "lucide-react";
+import { Search as SearchIcon, FileText, History, ExternalLink, Loader2, Sparkles, LogOut, User, ChevronDown, Settings, Plus, MessageSquare, BookOpen, Library } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -64,6 +64,10 @@ interface ChatMessage {
   excerpts?: RagExcerpt[];
   ragDebug?: RagDebug | null;
   staleDocuments?: number;
+  // Which backend path answered. 'corpus_overview' questions ("what's in my
+  // Drive?") are answered from the document catalog with no retrieval at all,
+  // so they carry no excerpts and their document chips are not ranked sources.
+  answerMode?: "lookup" | "corpus_overview";
   isFallback?: boolean; // answered via live Drive search, not the indexed RAG path
 }
 
@@ -245,6 +249,7 @@ const Search = () => {
           excerpts: ragData.excerpts || [],
           ragDebug: ragData.retrieval ?? null,
           staleDocuments: ragData.staleDocuments ?? 0,
+          answerMode: ragData.answerMode === "corpus_overview" ? "corpus_overview" : "lookup",
         };
         setMessages((prev) => [...prev, assistantMessage]);
 
@@ -456,6 +461,12 @@ const Search = () => {
                     {m.isFallback && (
                       <p className="text-xs text-muted-foreground italic">Answered via live Drive search (nothing indexed yet)</p>
                     )}
+                    {m.answerMode === "corpus_overview" && (
+                      <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-[11px] text-secondary-foreground">
+                        <Library className="h-3 w-3" />
+                        Answered from the document catalog — exact counts, no passage search
+                      </p>
+                    )}
 
                     {!!m.excerpts?.length && (
                       <Collapsible className="mt-3">
@@ -528,7 +539,13 @@ const Search = () => {
                     )}
 
                     {!!m.sources?.length && (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-[11px] font-medium text-muted-foreground">
+                          {m.answerMode === "corpus_overview"
+                            ? `Documents in your index (${m.sources.length} of the largest shown)`
+                            : "Sources"}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
                         {m.sources.map((s) => (
                           <a
                             key={s.id}
@@ -542,6 +559,7 @@ const Search = () => {
                             <ExternalLink className="h-2.5 w-2.5" />
                           </a>
                         ))}
+                        </div>
                       </div>
                     )}
                   </Card>

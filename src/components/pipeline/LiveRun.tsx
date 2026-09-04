@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, Play, RotateCcw, Check, CircleDashed } from "lucide-react";
+import { Loader2, Play, RotateCcw, Check, CircleDashed, Route } from "lucide-react";
 import { toast } from "sonner";
 
 interface Candidate {
@@ -38,6 +38,9 @@ interface Excerpt {
 interface Retrieval {
   /** Which path the planner routed this question down. Absent on older responses. */
   intent?: "lookup" | "corpus_overview";
+  /** What the classifier itself decided, even when an override overruled it. */
+  classifiedIntent?: "lookup" | "corpus_overview";
+  intentForced?: boolean;
   mode: string | null;
   embeddingSpace: string | null;
   embeddingModel: string;
@@ -52,6 +55,9 @@ interface Retrieval {
 interface Corpus {
   totalDocuments: number;
   indexedDocuments: number;
+  /** What the catalog's own per-document bookkeeping adds up to. */
+  catalogChunks: number;
+  /** Chunk rows that actually exist and are actually searchable. */
   searchableChunks: number;
   listingTruncated: boolean;
   statsComplete: boolean;
@@ -72,7 +78,9 @@ interface Turn {
   corpus: Corpus | null;
 }
 
-const STAGES = [
+type RouteChoice = "auto" | "lookup" | "corpus_overview";
+
+const LOOKUP_STAGES = [
   { n: 1, label: "Understand the question" },
   { n: 2, label: "Rewrite into a standalone search query" },
   { n: 3, label: "Embed the query into a vector" },
@@ -82,6 +90,38 @@ const STAGES = [
   { n: 7, label: "Rerank + cap per document" },
   { n: 8, label: "Build the prompt from excerpts" },
   { n: 9, label: "Generate the cited answer" },
+];
+
+const CORPUS_STAGES = [
+  { n: 1, label: "Understand the question" },
+  { n: 2, label: "Classify the intent → corpus_overview" },
+  { n: 3, label: "Query the document catalog" },
+  { n: 4, label: "Generate the answer from catalog data" },
+];
+
+/** Shown until the response lands: the route isn't known before the planner runs. */
+const PRE_ROUTE_STAGES = [
+  { n: 1, label: "Understand the question" },
+  { n: 2, label: "Plan the query and classify the route" },
+];
+
+const EXAMPLES: { label: string; question: string; hint: string }[] = [
+  {
+    label: "Lookup",
+    question: "What are the main conclusions in my most recent documents?",
+    hint: "routed through retrieval",
+  },
+  {
+    label: "Corpus overview",
+    question: "What does my Drive contain?",
+    hint: "routed to the catalog",
+  },
+];
+
+const ROUTE_OPTIONS: { value: RouteChoice; label: string }[] = [
+  { value: "auto", label: "Auto (classifier)" },
+  { value: "lookup", label: "Force lookup" },
+  { value: "corpus_overview", label: "Force corpus overview" },
 ];
 
 const num = (v: number | null | undefined, d = 3) =>
@@ -183,6 +223,7 @@ export const LiveRun = () => {
   const [question, setQuestion] = useState("");
   const [running, setRunning] = useState(false);
   const [activeStage, setActiveStage] = useState(0);
+  const [route, setRoute] = useState<RouteChoice>("auto");
   const [turns, setTurns] = useState<Turn[]>([]);
   const timer = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -200,8 +241,10 @@ export const LiveRun = () => {
     setRunning(true);
     setQuestion("");
     setActiveStage(1);
+    // Only advances to the classification step: which stages run after it
+    // depends on the route, and the route isn't known until the response lands.
     timer.current = window.setInterval(() => {
-      setActiveStage((s) => (s >= 9 ? 9 : s + 1));
+      setActiveStage((s) => (s >= 2 ? 2 : s + 1));
     }, 900);
 
     const history = turns
@@ -214,7 +257,15 @@ export const LiveRun = () => {
     const started = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("rag-answer", {
-        body: { question: q, history, overrides: { debugRetrieval: true } },
+        body: {
+          question: q,
+          history,
+          overrides: {
+            debugRetrieval: true,
+            // Omitted on "auto" so the planner's own classification decides.
+            ...(route === "auto" ? {} : { intent: route }),
+          },
+        },
       });
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
@@ -266,26 +317,70 @@ export const LiveRun = () => {
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            ref={inputRef}
-            autoFocus
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={turns.length ? "Ask a follow-up…" : "Ask a question about your documents…"}
-            onKeyDown={(e) => e.key === "Enter" && !running && run()}
-          />
-          <Button onClick={run} disabled={running || !question.trim()}>
-            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            Run
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              ref={inputRef}
+              autoFocus
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder={turns.length ? "Ask a follow-up…" : "Ask a question about your documents…"}
+              onKeyDown={(e) => e.key === "Enter" && !running && run()}
+            />
+            <Button onClick={run} disabled={running || !question.trim()}>
+              {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+              Run
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Route className="h-3.5 w-3.5" /> Route:
+            </span>
+            {ROUTE_OPTIONS.map((o) => (
+              <Button
+                key={o.value}
+                type="button"
+                size="sm"
+                variant={route === o.value ? "secondary" : "ghost"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setRoute(o.value)}
+                disabled={running}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {route === "auto"
+              ? "The planner decides: questions about what the documents say go through retrieval, questions about the collection itself go to the catalog."
+              : "Forcing the route overrules the classifier. Ask the same question both ways to see why the routing exists — a forced lookup on \"what's in my Drive?\" describes ten passages as though they were everything."}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-xs text-muted-foreground">Try:</span>
+            {EXAMPLES.map((ex) => (
+              <Button
+                key={ex.label}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setQuestion(ex.question)}
+                disabled={running}
+              >
+                {ex.label}: “{ex.question}”
+                <span className="ml-1 text-muted-foreground">· {ex.hint}</span>
+              </Button>
+            ))}
+          </div>
         </div>
 
         {running && (
           <div className="rounded-md border p-3">
             <p className="mb-2 text-xs text-muted-foreground">Running…</p>
             <ul className="space-y-1">
-              {STAGES.map((s) => (
+              {PRE_ROUTE_STAGES.map((s) => (
                 <li key={s.n} className="flex items-center gap-2 text-sm">
                   {s.n < activeStage ? (
                     <Check className="h-4 w-4 text-primary" />
@@ -297,10 +392,18 @@ export const LiveRun = () => {
                   <span className={s.n > activeStage ? "text-muted-foreground/50" : ""}>{s.label}</span>
                 </li>
               ))}
+              <li className="flex items-center gap-2 text-sm text-muted-foreground/50">
+                <CircleDashed className="h-4 w-4 text-muted-foreground/40" />
+                {route === "auto"
+                  ? "Remaining stages depend on the route the classifier picks…"
+                  : route === "corpus_overview"
+                    ? `Then ${CORPUS_STAGES.length - 2} catalog stages (route forced)`
+                    : `Then ${LOOKUP_STAGES.length - 2} retrieval stages (route forced)`}
+              </li>
             </ul>
             <p className="mt-2 text-xs text-muted-foreground">
-              Stage highlighting is indicative — the backend answers in a single call, so exact per-stage
-              data appears below the moment the run finishes.
+              Stage highlighting is indicative — the backend answers in a single call, so the full route and
+              its per-stage data appear below the moment the run finishes.
             </p>
           </div>
         )}
@@ -312,12 +415,21 @@ export const LiveRun = () => {
             <div key={ti} className="space-y-3 rounded-md border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">Turn {ti + 1}</Badge>
+                <Badge>
+                  {t.answerMode === "corpus_overview" ? "corpus overview" : "lookup"}
+                </Badge>
                 <Badge variant="outline">{t.ms} ms</Badge>
                 {t.model && <span className="font-mono text-xs text-muted-foreground">{t.model}</span>}
                 {t.answerMode === "corpus_overview" ? (
                   <Badge variant="outline">catalog lookup · no retrieval</Badge>
                 ) : (
                   r?.mode && <Badge variant="outline">{r.mode} · {r.embeddingSpace}</Badge>
+                )}
+                {r?.intentForced && (
+                  <Badge variant="outline">
+                    route forced
+                    {r.classifiedIntent ? ` · classifier said ${r.classifiedIntent}` : ""}
+                  </Badge>
                 )}
               </div>
               <p className="text-sm font-medium">{t.question}</p>
@@ -357,7 +469,7 @@ export const LiveRun = () => {
                       pipeline maintains. No embedding, no vector search, no keyword search, no reranking ran.
                     </p>
                     {t.corpus && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <div className="rounded border p-2">
                           <p className="text-xs text-muted-foreground">Catalog documents</p>
                           <p className="font-mono text-sm text-foreground">{t.corpus.totalDocuments}</p>
@@ -367,11 +479,20 @@ export const LiveRun = () => {
                           <p className="font-mono text-sm text-foreground">{t.corpus.indexedDocuments}</p>
                         </div>
                         <div className="rounded border p-2">
+                          <p className="text-xs text-muted-foreground">Passages per the catalog</p>
+                          <p className="font-mono text-sm text-foreground">{t.corpus.catalogChunks}</p>
+                        </div>
+                        <div className="rounded border p-2">
                           <p className="text-xs text-muted-foreground">Searchable passages</p>
                           <p className="font-mono text-sm text-foreground">{t.corpus.searchableChunks}</p>
                         </div>
                       </div>
                     )}
+                    <p className="text-xs">
+                      The last two are counted differently on purpose: one is the catalog's own bookkeeping,
+                      the other is how many chunk rows actually exist. When they disagree, the catalog is
+                      behind.
+                    </p>
                     {t.corpus?.catalogStale && (
                       <Alert variant="destructive">
                         <AlertDescription className="text-xs">

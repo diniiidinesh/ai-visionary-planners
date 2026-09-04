@@ -313,6 +313,11 @@ export const EmbeddingLab = () => {
               model. The only variable is which vector space the semantic channel searches. Follow-ups are
               supported: each space carries its own conversation history, so you can see the two branches
               diverge over a real dialogue.
+              <span className="mt-2 block">
+                Both runs are pinned to the <code>lookup</code> route. A corpus-overview question is answered
+                from the catalog without embedding anything, so it would return the same answer in both panes
+                and there would be nothing to compare. Use the Live run above to exercise that route.
+              </span>
             </CardDescription>
           </div>
           {turns.length > 0 && (
