@@ -185,6 +185,7 @@ const Connect = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {!isDemoMode() && (
                 <Button
                   onClick={() => handleConnect(integration.name.toLowerCase())}
                   className="w-full"
@@ -193,6 +194,7 @@ const Connect = () => {
                 >
                   {loading ? "Connecting..." : integration.connected ? "Reconnect" : `Connect ${integration.name}`}
                 </Button>
+                )}
               </CardContent>
             </Card>
           ))}

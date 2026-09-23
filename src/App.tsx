@@ -10,6 +10,7 @@ import Connect from "./pages/Connect";
 import Search from "./pages/Search";
 import AISettings from "./pages/AISettings";
 import Pipeline from "./pages/Pipeline";
+import Demo from "./pages/Demo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/search" element={<Search />} />
           <Route path="/ai-settings" element={<AISettings />} />
           <Route path="/pipeline" element={<Pipeline />} />
+          <Route path="/demo" element={<Demo />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

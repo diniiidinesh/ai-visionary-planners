@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { checkUserConnections } from "@/utils/connectionStatus";
+import { setDemoMode } from "@/lib/demo";
 
 const Auth = () => {
   const [searchParams] = useSearchParams();
@@ -99,6 +100,7 @@ const Auth = () => {
       });
 
       if (error) throw error;
+      setDemoMode(false);
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
