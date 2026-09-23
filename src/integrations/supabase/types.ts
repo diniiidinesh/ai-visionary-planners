@@ -118,6 +118,21 @@ export type Database = {
         }
         Relationships: []
       }
+      demo_usage: {
+        Row: {
+          day: string
+          questions: number
+        }
+        Insert: {
+          day: string
+          questions?: number
+        }
+        Update: {
+          day?: string
+          questions?: number
+        }
+        Relationships: []
+      }
       document_chunks: {
         Row: {
           author: string | null
@@ -521,6 +536,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      demo_consume_question: { Args: { p_limit: number }; Returns: number }
       embedding_coverage_by_document: {
         Args: never
         Returns: {
