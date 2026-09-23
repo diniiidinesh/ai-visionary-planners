@@ -236,6 +236,7 @@ export const EmbeddingLab = () => {
   const runOne = async (space: Space, q: string): Promise<RunResult> => {
     const started = performance.now();
     const { data, error } = await supabase.functions.invoke("rag-answer", {
+      headers: demoHeaders(),
       body: {
         question: q,
         history: historyFor(space),

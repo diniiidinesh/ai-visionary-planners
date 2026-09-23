@@ -257,6 +257,7 @@ export const LiveRun = () => {
     const started = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("rag-answer", {
+        headers: demoHeaders(),
         body: {
           question: q,
           history,

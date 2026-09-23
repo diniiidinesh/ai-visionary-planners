@@ -21,7 +21,7 @@ import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-demo-mode',
 };
 
 const HistoryTurnSchema = z.object({
@@ -115,6 +115,22 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Shared daily cap for visitors who came in through the /demo page.
+    if (req.headers.get('x-demo-mode') === '1') {
+      const admin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      );
+      const { data: used, error: capErr } = await admin.rpc('demo_consume_question', { p_limit: 20 });
+      if (capErr) console.error('demo cap error:', capErr.message);
+      if (!capErr && used == null) {
+        return new Response(
+          JSON.stringify({ error: 'The demo has reached its daily question limit. Please come back tomorrow.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Nothing indexed yet -> tell the client to use the live-search fallback.

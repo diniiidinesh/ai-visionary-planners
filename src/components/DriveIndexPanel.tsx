@@ -231,6 +231,9 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
           </div>
         )}
 
+        {isDemoMode() ? (
+          <p className="text-sm text-muted-foreground">Syncing and re-indexing are turned off in the demo.</p>
+        ) : (
         <div className="flex flex-wrap gap-3">
           <Button onClick={() => runIndex(false)} disabled={!connected || indexing}>
             {indexing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
@@ -241,6 +244,7 @@ const DriveIndexPanel = ({ connected }: { connected: boolean }) => {
             Full re-index
           </Button>
         </div>
+        )}
 
         <div className="flex items-center justify-between rounded-lg border p-3">
           <div className="space-y-0.5">
