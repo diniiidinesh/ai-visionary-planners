@@ -1,16 +1,16 @@
-# Match the Embedding A/B Lab to Live run
+# Reconcile Live run and Embedding A/B stages
 
 ## Goal
-Rebuild the Embedding A/B Lab’s results area so each model follows the same clear, expandable stage-by-stage presentation used by Live run, while preserving the existing conversational comparison behavior.
+Make the route decision visible as the shared first layer, then use one consistent lookup pipeline in both Live run and the Embedding A/B lab.
 
 ## Changes
-- Keep the current shared question input, follow-up history, loading state, and “New conversation” action.
-- Replace each model’s generic result accordion with the same nine retrieval stages used in Live run: question, rewritten query, query embedding, semantic search, keyword search, RRF fusion, reranking, prompt excerpts, and generated answer.
-- Present OpenAI and Voyage in aligned side-by-side columns on larger screens and stacked columns on smaller screens, retaining model, timing, reranking, fallback, and retrieval-agreement indicators.
-- Reuse the Live run stage status visuals and candidate-table hierarchy so both tools feel like one coherent pipeline experience.
-- Preserve the lab’s forced `lookup` behavior because corpus-overview requests skip embeddings and cannot provide a meaningful A/B comparison.
+- Show the query planner’s route filter clearly: every question is classified as either `corpus_overview` or `lookup` before embedding retrieval starts.
+- Clarify that Live run follows either the catalog branch or embedding branch, while the A/B lab deliberately forces `lookup` so both embedding spaces can be compared.
+- Standardize the lookup sequence and labels in both sections: understand/classify, standalone query, query embedding, semantic search, keyword search, RRF fusion, reranking/capping, prompt excerpts, and generated answer.
+- Rebuild each OpenAI/Voyage result column with the same expandable stage rows and status visuals used by Live run.
+- Keep the existing conversation history, side-by-side agreement measure, timing/model indicators, and separate histories for each embedding space.
 
 ## Validation
-- Confirm the pipeline page builds without errors.
-- Check the A/B lab at desktop and mobile widths for readable controls, aligned comparisons, and no overlapping content.
-- Verify an authenticated comparison still carries separate conversation history for both embedding spaces.
+- Confirm the page builds without errors.
+- Check desktop and mobile layouts for readable aligned stages and no overlap.
+- Verify the A/B request still forces `lookup` and each model receives its own follow-up history.
