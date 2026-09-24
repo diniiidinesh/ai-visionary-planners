@@ -109,7 +109,7 @@ const Pipeline = () => {
                 </div>
               ))}
             </div>
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
+            <pre className="whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
 {`INDEXING (runs when you click "Index my Drive")
   Drive file  →  raw bytes  →  plain text  →  chunks  →  vectors  →  Postgres rows
 

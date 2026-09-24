@@ -82,7 +82,7 @@ interface Turn {
 type RouteChoice = "auto" | "lookup" | "corpus_overview";
 
 const LOOKUP_STAGES = [
-  { n: 1, label: "Understand the question" },
+  { n: 1, label: "Understand the question and classify the route" },
   { n: 2, label: "Rewrite into a standalone search query" },
   { n: 3, label: "Embed the query into a vector" },
   { n: 4, label: "Semantic search over chunk vectors" },
@@ -94,16 +94,16 @@ const LOOKUP_STAGES = [
 ];
 
 const CORPUS_STAGES = [
-  { n: 1, label: "Understand the question" },
-  { n: 2, label: "Classify the intent → corpus_overview" },
+  { n: 1, label: "Understand the question and classify the route" },
+  { n: 2, label: "Choose the corpus overview branch" },
   { n: 3, label: "Query the document catalog" },
   { n: 4, label: "Generate the answer from catalog data" },
 ];
 
 /** Shown until the response lands: the route isn't known before the planner runs. */
 const PRE_ROUTE_STAGES = [
-  { n: 1, label: "Understand the question" },
-  { n: 2, label: "Plan the query and classify the route" },
+  { n: 1, label: "Understand the question and classify the route" },
+  { n: 2, label: "Prepare the selected branch" },
 ];
 
 const EXAMPLES: { label: string; question: string; hint: string }[] = [
@@ -345,7 +345,7 @@ export const LiveRun = () => {
                 type="button"
                 size="sm"
                 variant={route === o.value ? "secondary" : "ghost"}
-                className="h-7 px-2 text-xs"
+                className="h-auto max-w-full justify-start whitespace-normal px-2 py-1 text-left text-xs"
                 onClick={() => setRoute(o.value)}
                 disabled={running}
               >
@@ -367,7 +367,7 @@ export const LiveRun = () => {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
+                className="h-auto max-w-full justify-start whitespace-normal px-2 py-1 text-left text-xs"
                 onClick={() => setQuestion(ex.question)}
                 disabled={running}
               >
@@ -444,7 +444,7 @@ export const LiveRun = () => {
 
               {t.answerMode === "corpus_overview" ? (
                 <Accordion type="multiple" className="w-full">
-                  <StageRow n={1} label="Understand the question" state="done">
+                  <StageRow n={1} label="Understand the question and classify the route" state="done">
                     <p>
                       Raw input sent to the backend, with the last {Math.min(ti, 4) * 2} prior message(s) as
                       conversation context.
@@ -452,7 +452,7 @@ export const LiveRun = () => {
                     <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{t.question}</pre>
                   </StageRow>
 
-                  <StageRow n={2} label="Classify the intent → corpus_overview" state="done">
+                  <StageRow n={2} label="Choose the corpus overview branch" state="done">
                     <p>
                       The planner classified this as a question about the <em>collection itself</em>, not about
                       what any document says — so the retrieval pipeline was skipped entirely.
@@ -522,7 +522,7 @@ export const LiveRun = () => {
                 </Accordion>
               ) : (
               <Accordion type="multiple" className="w-full">
-                <StageRow n={1} label="Understand the question" state="done">
+                <StageRow n={1} label="Understand the question and classify the route" state="done">
                   <p>
                     Raw input sent to the backend, with the last {Math.min(ti, 4) * 2} prior message(s) as
                     conversation context.
