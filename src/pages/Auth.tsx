@@ -45,6 +45,7 @@ const Auth = () => {
       });
 
       if (error) throw error;
+      setDemoMode(false);
 
       toast({
         title: "Account created!",
