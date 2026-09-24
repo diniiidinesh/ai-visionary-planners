@@ -367,7 +367,7 @@ export const LiveRun = () => {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
+                className="h-auto max-w-full justify-start whitespace-normal px-2 py-1 text-left text-xs"
                 onClick={() => setQuestion(ex.question)}
                 disabled={running}
               >
