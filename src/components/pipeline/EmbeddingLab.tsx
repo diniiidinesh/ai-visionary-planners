@@ -62,12 +62,37 @@ const num = (v: number | null | undefined, digits = 3) =>
   v === null || v === undefined ? "—" : Number(v).toFixed(digits);
 
 const STAGES = [
+  "Understand the question and classify the route",
   "Rewrite into a standalone search query",
-  "Embed the query in each vector space",
-  "Semantic + keyword search",
-  "Fuse rankings (RRF) and rerank",
+  "Embed the query into each vector space",
+  "Semantic search over chunk vectors",
+  "Keyword search over the same chunks",
+  "Fuse both rankings (RRF)",
+  "Rerank + cap per document",
+  "Build the prompt from excerpts",
   "Generate both cited answers",
 ];
+
+const StageRow = ({
+  n,
+  label,
+  children,
+}: {
+  n: number;
+  label: string;
+  children?: React.ReactNode;
+}) => (
+  <AccordionItem value={`s${n}`}>
+    <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">
+      <span className="flex items-center gap-2">
+        <Check className="h-4 w-4 text-primary" />
+        <span className="font-mono text-xs text-muted-foreground">{n}</span>
+        <span>{label}</span>
+      </span>
+    </AccordionTrigger>
+    <AccordionContent className="space-y-3 text-sm text-muted-foreground">{children}</AccordionContent>
+  </AccordionItem>
+);
 
 const CandidateTable = ({
   rows,
@@ -130,7 +155,15 @@ const CandidateTable = ({
   );
 };
 
-const SpaceColumn = ({ r, otherSet }: { r: RunResult; otherSet: Set<string> }) => (
+const SpaceColumn = ({
+  r,
+  otherSet,
+  question,
+}: {
+  r: RunResult;
+  otherSet: Set<string>;
+  question: string;
+}) => (
   <div className="space-y-3 rounded-md border p-3">
     <div className="flex flex-wrap items-center gap-2">
       <Badge>{r.space === "openai" ? "OpenAI space" : "Voyage space"}</Badge>
@@ -146,51 +179,71 @@ const SpaceColumn = ({ r, otherSet }: { r: RunResult; otherSet: Set<string> }) =
     )}
 
     <Accordion type="multiple" className="w-full">
-      <AccordionItem value="q">
-        <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">
-          Standalone query + keyword variants
-        </AccordionTrigger>
-        <AccordionContent className="space-y-2 text-xs text-muted-foreground">
-          <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-foreground">
-            {r.retrievalQuery ?? "(question used as-is)"}
-          </pre>
-          {r.keywordQueries?.length ? <p>{r.keywordQueries.join(" | ")}</p> : null}
-        </AccordionContent>
-      </AccordionItem>
+      <StageRow n={1} label="Understand the question and classify the route">
+        <p>
+          The query planner first decides whether this asks about the whole collection or needs evidence from
+          document passages.
+        </p>
+        <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{question}</pre>
+        <p className="text-xs">
+          This lab forces <code>lookup</code> after classification so the OpenAI and Voyage embedding paths can
+          be compared. A <code>corpus_overview</code> run skips embeddings and would be identical in both columns.
+        </p>
+      </StageRow>
 
-      <AccordionItem value="vec">
-        <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">Semantic candidates</AccordionTrigger>
-        <AccordionContent className="text-muted-foreground">
-          <CandidateTable rows={r.candidates} sortKey="vectorRank" otherSet={otherSet} />
-        </AccordionContent>
-      </AccordionItem>
+      <StageRow n={2} label="Rewrite into a standalone search query">
+        <p>
+          {r.retrievalQuery
+            ? "The planner rewrote the question using the conversation history so it can be searched on its own."
+            : "The question was already standalone, so it was used as written."}
+        </p>
+        <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">
+          {r.retrievalQuery ?? question}
+        </pre>
+        {r.keywordQueries?.length ? (
+          <p className="text-xs"><span className="font-medium">Keyword variants:</span> {r.keywordQueries.join(" | ")}</p>
+        ) : null}
+      </StageRow>
 
-      <AccordionItem value="kw">
-        <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">Keyword candidates</AccordionTrigger>
-        <AccordionContent className="text-muted-foreground">
-          <CandidateTable rows={r.candidates} sortKey="keywordRank" otherSet={otherSet} />
-        </AccordionContent>
-      </AccordionItem>
+      <StageRow n={3} label="Embed the query into a vector">
+        <p>
+          <code>{r.embeddingModel}</code> turned the standalone query into coordinates in the {r.space === "openai" ? "OpenAI" : "Voyage"} vector space.
+        </p>
+      </StageRow>
 
-      <AccordionItem value="final">
-        <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">
-          Fused + reranked (used passages highlighted)
-        </AccordionTrigger>
-        <AccordionContent className="text-muted-foreground">
+      <StageRow n={4} label="Semantic search over chunk vectors">
+        <p>Nearest passages by cosine similarity in this embedding space:</p>
+        <CandidateTable rows={r.candidates} sortKey="vectorRank" otherSet={otherSet} />
+      </StageRow>
+
+      <StageRow n={5} label="Keyword search over the same chunks">
+        <p>The literal full-text channel is shared by both columns; differences marked “only here” come from the candidate pool.</p>
+        <CandidateTable rows={r.candidates} sortKey="keywordRank" otherSet={otherSet} />
+      </StageRow>
+
+      <StageRow n={6} label="Fuse both rankings (RRF)">
+        <p>Semantic and keyword positions are combined with <code>weight / (60 + rank)</code>.</p>
+        <CandidateTable rows={r.candidates} sortKey="fusedScore" otherSet={otherSet} />
+      </StageRow>
+
+      <StageRow n={7} label="Rerank + cap per document">
+        <p>
+          {r.reranked
+            ? "The Voyage cross-encoder rescored the fused candidates, then the per-document cap prevented one file from filling the prompt."
+            : "No reranker ran; the fused order was capped per document."}
+        </p>
           <CandidateTable
             rows={r.candidates}
             sortKey={r.reranked ? "rerankScore" : "fusedScore"}
             otherSet={otherSet}
             highlightUsed
           />
-        </AccordionContent>
-      </AccordionItem>
+        <p className="text-xs">Highlighted rows are the {r.chunksUsed} passages that survived.</p>
+      </StageRow>
 
-      <AccordionItem value="prompt">
-        <AccordionTrigger className="py-2 text-left text-sm hover:no-underline">
-          Prompt excerpts ({r.excerpts.length})
-        </AccordionTrigger>
-        <AccordionContent className="space-y-2 text-muted-foreground">
+      <StageRow n={8} label="Build the prompt from excerpts">
+        <p>Exactly these numbered passages were handed to the answer model:</p>
+        <div className="space-y-2">
           {r.excerpts.map((e) => (
             <div key={e.ref} className="rounded border bg-muted/40 p-2">
               <p className="text-xs font-medium text-foreground">
@@ -204,8 +257,12 @@ const SpaceColumn = ({ r, otherSet }: { r: RunResult; otherSet: Set<string> }) =
             </div>
           ))}
           {r.excerpts.length === 0 && <p className="text-xs">No passages passed the threshold.</p>}
-        </AccordionContent>
-      </AccordionItem>
+        </div>
+      </StageRow>
+
+      <StageRow n={9} label="Generate the cited answer">
+        <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-foreground">{r.summary}</pre>
+      </StageRow>
     </Accordion>
 
     <Separator />
@@ -316,9 +373,9 @@ export const EmbeddingLab = () => {
               supported: each space carries its own conversation history, so you can see the two branches
               diverge over a real dialogue.
               <span className="mt-2 block">
-                Both runs are pinned to the <code>lookup</code> route. A corpus-overview question is answered
-                from the catalog without embedding anything, so it would return the same answer in both panes
-                and there would be nothing to compare. Use the Live run above to exercise that route.
+                The same route filter runs first in both tools. Live run follows its result; this lab pins the
+                result to <code>lookup</code>, because <code>corpus_overview</code> skips embeddings and would
+                produce identical columns. Use Live run above to exercise both branches.
               </span>
             </CardDescription>
           </div>
@@ -393,8 +450,8 @@ export const EmbeddingLab = () => {
               </Alert>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <SpaceColumn r={t.openai} otherSet={setB} />
-                <SpaceColumn r={t.voyage} otherSet={setA} />
+                <SpaceColumn r={t.openai} otherSet={setB} question={t.question} />
+                <SpaceColumn r={t.voyage} otherSet={setA} question={t.question} />
               </div>
             </div>
           );
