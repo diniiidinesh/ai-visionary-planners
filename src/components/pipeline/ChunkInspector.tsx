@@ -66,7 +66,7 @@ export const ChunkInspector = () => (
             </div>
             <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
               {chunk.overlap && (
-                <span className="rounded bg-accent/15 text-accent-foreground/90">{chunk.overlap}</span>
+                <span className="rounded bg-accent/15 text-foreground">{chunk.overlap}</span>
               )}
               {chunk.content}
             </p>
